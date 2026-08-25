@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("HyperOp.Experiments")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ee93a4257ffff888fa7a26939c5898b4f4cfe783")]
 [assembly: System.Reflection.AssemblyProductAttribute("HyperOp.Experiments")]
 [assembly: System.Reflection.AssemblyTitleAttribute("HyperOp.Experiments")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -14,11 +14,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Agent\\HyperOp.Agent.csproj",
+      "projectUniqueName": "C:\\dev\\HyperOpt\\HyperOp.Agent\\HyperOp.Agent.csproj",
       "projectName": "HyperOp.Agent",
-      "projectPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Agent\\HyperOp.Agent.csproj",
+      "projectPath": "C:\\dev\\HyperOpt\\HyperOp.Agent\\HyperOp.Agent.csproj",
       "packagesPath": "C:\\Users\\P41847\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Agent\\obj\\",
+      "outputPath": "C:\\dev\\HyperOpt\\HyperOp.Agent\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

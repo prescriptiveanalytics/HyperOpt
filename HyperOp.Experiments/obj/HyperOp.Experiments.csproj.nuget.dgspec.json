@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Experiments\\HyperOp.Experiments.csproj": {}
+    "C:\\dev\\HyperOpt\\HyperOp.Experiments\\HyperOp.Experiments.csproj": {}
   },
   "projects": {
-    "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj": {
+    "C:\\dev\\HyperOpt\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj",
+        "projectUniqueName": "C:\\dev\\HyperOpt\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj",
         "projectName": "HyperOp.Algorithms",
-        "projectPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj",
+        "projectPath": "C:\\dev\\HyperOpt\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj",
         "packagesPath": "C:\\Users\\P41847\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Algorithms\\obj\\",
+        "outputPath": "C:\\dev\\HyperOpt\\HyperOp.Algorithms\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -352,14 +352,14 @@
         }
       }
     },
-    "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Experiments\\HyperOp.Experiments.csproj": {
+    "C:\\dev\\HyperOpt\\HyperOp.Experiments\\HyperOp.Experiments.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Experiments\\HyperOp.Experiments.csproj",
+        "projectUniqueName": "C:\\dev\\HyperOpt\\HyperOp.Experiments\\HyperOp.Experiments.csproj",
         "projectName": "HyperOp.Experiments",
-        "projectPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Experiments\\HyperOp.Experiments.csproj",
+        "projectPath": "C:\\dev\\HyperOpt\\HyperOp.Experiments\\HyperOp.Experiments.csproj",
         "packagesPath": "C:\\Users\\P41847\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Experiments\\obj\\",
+        "outputPath": "C:\\dev\\HyperOpt\\HyperOp.Experiments\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -382,8 +382,8 @@
             "framework": "net10.0",
             "targetAlias": "net10.0",
             "projectReferences": {
-              "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj": {
-                "projectPath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj"
+              "C:\\dev\\HyperOpt\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj": {
+                "projectPath": "C:\\dev\\HyperOpt\\HyperOp.Algorithms\\HyperOp.Algorithms.csproj"
               }
             }
           }

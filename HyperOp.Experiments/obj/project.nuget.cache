@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "nKefV6WJxio=",
+  "dgSpecHash": "CXVIbPcIafk=",
   "success": true,
-  "projectFilePath": "C:\\Users\\P41847\\source\\repos\\HyperOp\\HyperOp.Experiments\\HyperOp.Experiments.csproj",
+  "projectFilePath": "C:\\dev\\HyperOpt\\HyperOp.Experiments\\HyperOp.Experiments.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\P41847\\.nuget\\packages\\csvhelper\\33.1.0\\csvhelper.33.1.0.nupkg.sha512",
     "C:\\Users\\P41847\\.nuget\\packages\\heal.heuristiclib\\0.1.168-alpha\\heal.heuristiclib.0.1.168-alpha.nupkg.sha512",
