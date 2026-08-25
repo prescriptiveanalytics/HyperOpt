@@ -93,7 +93,7 @@ namespace HyperOp.Algorithms
                 new AlgorithmParameter { MutationRate = 3, }
             };
 
-            var aux = experiment.VaryBy(parameterGrid1, static (algorithm, parameters) => algorithm with { MutationRate = parameters.MutationRate, Elites = parameters.Elites })
+            var aux = experiment.VaryBy(parameterGrid1, static (algorithm, parameters) => algorithm with { MutationRate = parameters.MutationRate })
                 .CreateRun(problem, RandomNumberGenerator.Create(42));
 
             //Should.Throw<InvalidOperationException>(() => experiment.CreateRun(
