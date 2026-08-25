@@ -89,8 +89,8 @@ namespace HyperOp.Algorithms
 
 
             IReadOnlyList<AlgorithmParameter> parameterGrid1 = new List<AlgorithmParameter> {
-                new AlgorithmParameter { MutationRate = 1, Elites = 2 },
-                new AlgorithmParameter { MutationRate = 3, Elites = 4 }
+                new AlgorithmParameter { MutationRate = 1, },
+                new AlgorithmParameter { MutationRate = 3, }
             };
 
             var aux = experiment.VaryBy(parameterGrid1, static (algorithm, parameters) => algorithm with { MutationRate = parameters.MutationRate, Elites = parameters.Elites })
