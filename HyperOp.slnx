@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="HyperOp.Agent/HyperOp.Agent.csproj" />
+  <Project Path="HyperOp.Algorithms/HyperOp.Algorithms.csproj" Id="73f8e403-63d6-43e6-b03b-3614982bfecd" />
+  <Project Path="HyperOp.Experiments/HyperOp.Experiments.csproj" />
+</Solution>

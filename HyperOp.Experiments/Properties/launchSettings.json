@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "HyperOp.Experiments": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
