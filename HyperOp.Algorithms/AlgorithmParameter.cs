@@ -8,7 +8,7 @@ namespace HyperOp.Algorithms
     {
         public int PopulationSize { get; set; } = 100;
         public double MutationRate { get; set; } = 0.1;
-        public int Generations { get; set; } = 10;   
+        public int Generations { get; set; } = 100;
         public int MaxTreeDepth { get; set; } = 10;
         public int MaxTreeLength { get; set; } = 20;
     }
