@@ -6,22 +6,20 @@ using HEAL.HeuristicLib.MachineLearning;
 using HEAL.HeuristicLib.Operators;
 using HEAL.HeuristicLib.Problems.MachineLearning;
 using HEAL.HeuristicLib.Random;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace HyperOp.Algorithms
 {
     public class GPSR
     {
-        private double TestFunctiongenerator(double x0, double x1, double x2, double x3, double x4)
+        private double TestFunctiongenerator(double x0, double x1, double x2, double x3, double x4, double x5)
         {
-            return (x0 - x1) + Math.Pow((3 * x2), x3) / 2 + Math.Exp(Math.Log(2) * x4) - 3.14;
+            return (x0 - x1) + Math.Pow((3 * x2), x3) / 2 + Math.Exp(Math.Log(2) * x4) - 3.14 * Math.Log(x5);
         }
 
         private (double[,], double[]) GenerateTestData()
         {
             const int sampleCount = 100;
-            const int featureCount = 5;
+            const int featureCount = 6;
 
             double[,] inputArray = new double[sampleCount, featureCount];
             double[] targetArray = new double[sampleCount];
@@ -34,14 +32,16 @@ namespace HyperOp.Algorithms
                 double x2 = r.NextDouble() * 10;
                 double x3 = r.NextDouble() * 10;
                 double x4 = r.NextDouble() * 10;
+                double x5 = r.NextDouble() * 10;
 
                 inputArray[i, 0] = x0;
                 inputArray[i, 1] = x1;
                 inputArray[i, 2] = x2;
                 inputArray[i, 3] = x3;
                 inputArray[i, 4] = x4;
+                inputArray[i, 5] = x5;
 
-                targetArray[i] = TestFunctiongenerator(x0, x1, x2, x3, x4);
+                targetArray[i] = TestFunctiongenerator(x0, x1, x2, x3, x4, x5);
             }
 
             return (inputArray, targetArray);
@@ -49,7 +49,7 @@ namespace HyperOp.Algorithms
 
         public async Task<PopulationState<ExpressionTree>> Execute(AlgorithmParameter hyperParameter)
         {
-            IReadOnlyList<string> variableNames = ["x0", "x1", "x2", "x3", "x4"];
+            IReadOnlyList<string> variableNames = ["x0", "x1", "x2", "x3", "x4", "x5"];
             string targetVariableName = "y";
 
             var (inputData, targetData) = GenerateTestData();
@@ -95,10 +95,6 @@ namespace HyperOp.Algorithms
 
             var aux = experiment.VaryBy(parameterGrid1, static (algorithm, parameters) => algorithm with { MutationRate = parameters.MutationRate })
                 .CreateRun(problem, RandomNumberGenerator.Create(42));
-
-            //Should.Throw<InvalidOperationException>(() => experiment.CreateRun(
-            //    MetaAlgorithmTestHelpers.CreateIntegerProblem(),
-            //    RandomNumberGenerator.Create(42)));
 
             return await algorithm.CompleteAsync(problem, RandomNumberGenerator.Create(123));
         }
