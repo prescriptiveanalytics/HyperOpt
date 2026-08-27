@@ -102,5 +102,11 @@ namespace HyperOp.Algorithms
 
             return await algorithm.CompleteAsync(problem, RandomNumberGenerator.Create(123));
         }
+
+        public async Task<PopulationState<ExpressionTree>> ExecuteOnProblem(AlgorithmParameter hyperParameter, RegressionData problem)
+        {
+            // Think about how to include information from the feynman expressions here
+            return await Execute(hyperParameter);
+        }
     }
 }

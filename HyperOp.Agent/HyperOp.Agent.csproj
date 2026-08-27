@@ -6,4 +6,26 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="Resources\instructions.md" />
+    <None Remove="Resources\systemPrompt.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\instructions.md" />
+    <EmbeddedResource Include="Resources\systemPrompt.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LlmTornado" Version="3.8.67" />
+    <PackageReference Include="LlmTornado.Agents" Version="1.0.63" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HyperOp.Algorithms\HyperOp.Algorithms.csproj" />
+  </ItemGroup>
+
 </Project>
