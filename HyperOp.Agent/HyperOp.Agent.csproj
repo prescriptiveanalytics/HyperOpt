@@ -7,12 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Resources\instructions.md" />
     <None Remove="Resources\systemPrompt.md" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Resources\instructions.md" />
     <EmbeddedResource Include="Resources\systemPrompt.md" />
   </ItemGroup>
 
