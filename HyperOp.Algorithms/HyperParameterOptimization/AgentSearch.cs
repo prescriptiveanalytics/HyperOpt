@@ -7,9 +7,9 @@ using System.Text;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
-    internal class AgentSearch : IHyperParameterOptimizationAlgorithm
+    public class AgentSearch : HyperParameterOptimizationAlgorithm
     {
-        public List<(AlgorithmParameter, Population<ExpressionTree>)> Execute(FeynmanDescriptor feynmanInstance, CancellationToken token)
+        public override async Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(FeynmanDescriptor feynmanInstance, CancellationToken token)
         {
             throw new NotImplementedException();
         }

@@ -19,7 +19,7 @@
  */
 #endregion
 
-namespace HeuristicLab.Common
+namespace HyperOp.Algorithms.Feynman
 {
     public static class EnumerableStatisticExtensions
     {

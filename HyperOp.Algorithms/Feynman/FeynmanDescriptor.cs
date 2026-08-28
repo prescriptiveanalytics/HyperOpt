@@ -1,10 +1,8 @@
-﻿using HeuristicLab.Common;
-
-namespace HyperOp.Algorithms.Feynman
+﻿namespace HyperOp.Algorithms.Feynman
 {
     public abstract class FeynmanDescriptor
     {
-        protected double? noiseRatio;
+        public double? noiseRatio;
         public abstract string Name { get; }
         public string Description
         {
@@ -13,13 +11,13 @@ namespace HyperOp.Algorithms.Feynman
                 return "Feynman instances ... descriptions follows: " + Environment.NewLine;
             }
         }
-        protected abstract string TargetVariable { get; }
-        protected abstract string[] VariableNames { get; }
-        protected abstract string[] AllowedInputVariables { get; }
-        protected abstract int TrainingPartitionStart { get; }
-        protected abstract int TrainingPartitionEnd { get; }
-        protected abstract int TestPartitionStart { get; }
-        protected abstract int TestPartitionEnd { get; }
+        public abstract string TargetVariable { get; }
+        public abstract string[] VariableNames { get; }
+        public abstract string[] AllowedInputVariables { get; }
+        public abstract int TrainingPartitionStart { get; }
+        public abstract int TrainingPartitionEnd { get; }
+        public abstract int TestPartitionStart { get; }
+        public abstract int TestPartitionEnd { get; }
 
 
         public List<double> GetNoisyTarget(List<double> target, IRandom rand)
@@ -31,12 +29,12 @@ namespace HyperOp.Algorithms.Feynman
             targetNoise.AddRange(target.Select(md => md + NormalDistributedRandomPolar.NextDouble(rand, 0, sigmaNoise)));
             return targetNoise;
         }
-        //protected int TrainingPartitionStart { get { return 0; } }
-        //protected int TrainingPartitionEnd { get { return 100; } }
-        //protected int TestPartitionStart { get { return 100; } }
-        //protected int TestPartitionEnd { get { return 200; } }
+        //public int TrainingPartitionStart { get { return 0; } }
+        //public int TrainingPartitionEnd { get { return 100; } }
+        //public int TestPartitionStart { get { return 100; } }
+        //public int TestPartitionEnd { get { return 200; } }
 
-        protected abstract List<List<double>> GenerateValues();
+        public abstract List<List<double>> GenerateValues();
 
     }
 }

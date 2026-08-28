@@ -19,8 +19,6 @@
  */
 #endregion
 
-using HeuristicLab.Common;
-
 namespace HyperOp.Algorithms.Feynman
 {
     internal static class ValueGenerator

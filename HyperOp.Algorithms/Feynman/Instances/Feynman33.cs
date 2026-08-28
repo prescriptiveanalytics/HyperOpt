@@ -33,26 +33,26 @@ namespace HyperOp.Algorithms.Feynman.Instances
             }
         }
 
-        protected override string TargetVariable { get { return noiseRatio == null ? "Pwr" : "Pwr_noise"; } }
+        public override string TargetVariable { get { return noiseRatio == null ? "Pwr" : "Pwr_noise"; } }
 
-        protected override string[] VariableNames
+        public override string[] VariableNames
         {
             get { return noiseRatio == null ? new[] { "epsilon", "c", "Ef", "r", "omega", "omega_0", "Pwr" } : new[] { "epsilon", "c", "Ef", "r", "omega", "omega_0", "Pwr", "Pwr_noise" }; }
         }
 
-        protected override string[] AllowedInputVariables
+        public override string[] AllowedInputVariables
         {
             get { return new[] { "epsilon", "c", "Ef", "r", "omega", "omega_0" }; }
         }
 
         public int Seed { get; private set; }
 
-        protected override int TrainingPartitionStart { get { return 0; } }
-        protected override int TrainingPartitionEnd { get { return trainingSamples; } }
-        protected override int TestPartitionStart { get { return trainingSamples; } }
-        protected override int TestPartitionEnd { get { return trainingSamples + testSamples; } }
+        public override int TrainingPartitionStart { get { return 0; } }
+        public override int TrainingPartitionEnd { get { return trainingSamples; } }
+        public override int TestPartitionStart { get { return trainingSamples; } }
+        public override int TestPartitionEnd { get { return trainingSamples + testSamples; } }
 
-        protected override List<List<double>> GenerateValues()
+        public override List<List<double>> GenerateValues()
         {
             var rand = new MersenneTwister((uint)Seed);
 
