@@ -64,8 +64,6 @@ async Task ExecuteExperiments()
         }
 
     }
-    //TODO: Does not properly serialize yet.
-    //TODO: Use ReferenceHandler.Preserve
     File.WriteAllText($"./results/all_results.json", JsonSerializer.Serialize(allResults, serializerOptions));
 }
 
