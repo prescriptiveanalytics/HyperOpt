@@ -1,12 +1,11 @@
 ﻿using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HyperOp.Algorithms.Feynman;
-using HyperOp.Algorithms.HyperParameterOptimization;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace HyperOp.Algorithms
+namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     internal class IRaceSearch : IHyperParameterOptimizationAlgorithm
     {
