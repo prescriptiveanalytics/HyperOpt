@@ -42,6 +42,15 @@ namespace HyperOp.Agent
         public required SymbolicRegressionResult Result { get; init; }
     }
 
+    public record OptimizedHyperaparameterResult
+    {
+        public required AlgorithmParameter BestParameters { get; init; }
+        public required SymbolicRegressionResult BestResult { get; init; }
+        public required int ExperimentCount { get; init; }
+        public required TimeSpan Duration { get; init; }
+        // TODO: Reasoning?
+    }
+
     public class HyperOptAgent
     {
         // Initialize the respective LLM Tornado components
@@ -75,7 +84,7 @@ namespace HyperOp.Agent
                     client: _api,
                     model: _model,
                     instructions: _systemPrompt,
-                    tools: [],
+                    tools: [RunSymbolicRegression],
                     streaming: agentParameters.Streaming
                     );
             _agent.Options.Temperature = agentParameters.Temperature;
@@ -103,7 +112,22 @@ namespace HyperOp.Agent
             return new SymbolicRegressionResult(hyperParameter, -1.0, _timeLimit, null);
         }
 
-        public async Task Run(string agentInput, RegressionData regData)
+        private OptimizedHyperaparameterResult CreateOptimizationResult(TimeSpan duration)
+        {
+            Experiment bestExperiment = _experimentHistory
+                .OrderBy(e => e.Result.QualityMetrik)
+                .First();
+
+            return new OptimizedHyperaparameterResult
+            {
+                BestParameters = bestExperiment.HyperParameters,
+                BestResult = bestExperiment.Result,
+                ExperimentCount = _experimentHistory.Count,
+                Duration = duration
+            };
+        }
+
+        public async Task<OptimizedHyperaparameterResult> Run(string agentInput, RegressionData regData)
         {
             try
             {
@@ -121,9 +145,11 @@ namespace HyperOp.Agent
                 sw.Restart();
                 var conversation = result.Messages;
                 // TODO: Think about return value
+                return CreateOptimizationResult(responseTime);
             }
             catch // Think about error handling
             {
+                throw new Exception("Run did not work");
             }
         }
 
