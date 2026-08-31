@@ -1,0 +1,79 @@
+namespace HyperOp.Algorithms.Feynman.Instances
+{
+    public class Feynman22 : FeynmanDescriptor
+    {
+        private readonly int testSamples;
+        private readonly int trainingSamples;
+
+        public Feynman22() : this((int)DateTime.Now.Ticks, 10000, 10000, null) { }
+
+        public Feynman22(int seed)
+        {
+            Seed = seed;
+            trainingSamples = 10000;
+            testSamples = 10000;
+            noiseRatio = null;
+        }
+
+        public Feynman22(int seed, int trainingSamples, int testSamples, double? noiseRatio)
+        {
+            Seed = seed;
+            this.trainingSamples = trainingSamples;
+            this.testSamples = testSamples;
+            this.noiseRatio = noiseRatio;
+        }
+
+        public override string Name
+        {
+            get
+            {
+                return string.Format("I.18.12 r*F*sin(theta) | {0}",
+                  noiseRatio == null ? "no noise" : string.Format(System.Globalization.CultureInfo.InvariantCulture, "noise={0:g}", noiseRatio));
+            }
+        }
+
+        public override string TargetVariable { get { return noiseRatio == null ? "tau" : "tau_noise"; } }
+
+        public override string[] VariableNames
+        {
+            get { return noiseRatio == null ? new[] { "r", "F", "theta", "tau" } : new[] { "r", "F", "theta", "tau", "tau_noise" }; }
+        }
+
+        public override string[] AllowedInputVariables { get { return new[] { "r", "F", "theta" }; } }
+
+        public int Seed { get; private set; }
+
+        public override int TrainingPartitionStart { get { return 0; } }
+        public override int TrainingPartitionEnd { get { return trainingSamples; } }
+        public override int TestPartitionStart { get { return trainingSamples; } }
+        public override int TestPartitionEnd { get { return trainingSamples + testSamples; } }
+
+        public override List<List<double>> GenerateValues()
+        {
+            var rand = new MersenneTwister((uint)Seed);
+
+            var data = new List<List<double>>();
+            var r = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+            var F = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+            var theta = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 0, 5).ToList();
+
+            var tau = new List<double>();
+
+            data.Add(r);
+            data.Add(F);
+            data.Add(theta);
+            data.Add(tau);
+
+            for (var i = 0; i < r.Count; i++)
+            {
+                var res = r[i] * F[i] * Math.Sin(theta[i]);
+                tau.Add(res);
+            }
+
+            var targetNoise = ValueGenerator.GenerateNoise(tau, rand, noiseRatio);
+            if (targetNoise != null) data.Add(targetNoise);
+
+            return data;
+        }
+    }
+}

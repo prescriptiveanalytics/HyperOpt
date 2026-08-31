@@ -1,0 +1,83 @@
+namespace HyperOp.Algorithms.Feynman.Instances
+{
+    public class Feynman94 : FeynmanDescriptor
+    {
+        private readonly int testSamples;
+        private readonly int trainingSamples;
+
+        public Feynman94() : this((int)DateTime.Now.Ticks, 10000, 10000, null) { }
+
+        public Feynman94(int seed)
+        {
+            Seed = seed;
+            trainingSamples = 10000;
+            testSamples = 10000;
+            noiseRatio = null;
+        }
+
+        public Feynman94(int seed, int trainingSamples, int testSamples, double? noiseRatio)
+        {
+            Seed = seed;
+            this.trainingSamples = trainingSamples;
+            this.testSamples = testSamples;
+            this.noiseRatio = noiseRatio;
+        }
+
+        public override string Name
+        {
+            get
+            {
+                return string.Format("III.14.14 I_0*(exp(q*Volt/(kb*T))-1) | {0}",
+                  noiseRatio == null ? "no noise" : string.Format(System.Globalization.CultureInfo.InvariantCulture, "noise={0:g}", noiseRatio));
+            }
+        }
+
+        public override string TargetVariable { get { return noiseRatio == null ? "I" : "I_noise"; } }
+
+        public override string[] VariableNames
+        {
+            get { return noiseRatio == null ? new[] { "I_0", "q", "Volt", "kb", "T", "I" } : new[] { "I_0", "q", "Volt", "kb", "T", "I", "I_noise" }; }
+        }
+
+        public override string[] AllowedInputVariables { get { return new[] { "I_0", "q", "Volt", "kb", "T" }; } }
+
+        public int Seed { get; private set; }
+
+        public override int TrainingPartitionStart { get { return 0; } }
+        public override int TrainingPartitionEnd { get { return trainingSamples; } }
+        public override int TestPartitionStart { get { return trainingSamples; } }
+        public override int TestPartitionEnd { get { return trainingSamples + testSamples; } }
+
+        public override List<List<double>> GenerateValues()
+        {
+            var rand = new MersenneTwister((uint)Seed);
+
+            var data = new List<List<double>>();
+            var I_0 = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+            var q = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 2).ToList();
+            var Volt = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 2).ToList();
+            var kb = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 2).ToList();
+            var T = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 2).ToList();
+
+            var I = new List<double>();
+
+            data.Add(I_0);
+            data.Add(q);
+            data.Add(Volt);
+            data.Add(kb);
+            data.Add(T);
+            data.Add(I);
+
+            for (var i = 0; i < I_0.Count; i++)
+            {
+                var res = I_0[i] * (Math.Exp(q[i] * Volt[i] / (kb[i] * T[i])) - 1);
+                I.Add(res);
+            }
+
+            var targetNoise = ValueGenerator.GenerateNoise(I, rand, noiseRatio);
+            if (targetNoise != null) data.Add(targetNoise);
+
+            return data;
+        }
+    }
+}

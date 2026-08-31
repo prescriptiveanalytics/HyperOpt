@@ -1,0 +1,81 @@
+namespace HyperOp.Algorithms.Feynman.Instances
+{
+    public class Feynman84 : FeynmanDescriptor
+    {
+        private readonly int testSamples;
+        private readonly int trainingSamples;
+
+        public Feynman84() : this((int)DateTime.Now.Ticks, 10000, 10000, null) { }
+
+        public Feynman84(int seed)
+        {
+            Seed = seed;
+            trainingSamples = 10000;
+            testSamples = 10000;
+            noiseRatio = null;
+        }
+
+        public Feynman84(int seed, int trainingSamples, int testSamples, double? noiseRatio)
+        {
+            Seed = seed;
+            this.trainingSamples = trainingSamples;
+            this.testSamples = testSamples;
+            this.noiseRatio = noiseRatio;
+        }
+
+        public override string Name
+        {
+            get
+            {
+                return string.Format("II.38.3 Y*A*x/d | {0}",
+                  noiseRatio == null ? "no noise" : string.Format(System.Globalization.CultureInfo.InvariantCulture, "noise={0:g}", noiseRatio));
+            }
+        }
+
+        public override string TargetVariable { get { return noiseRatio == null ? "F" : "F_noise"; } }
+
+        public override string[] VariableNames
+        {
+            get { return noiseRatio == null ? new[] { "Y", "A", "d", "x", "F" } : new[] { "Y", "A", "d", "x", "F", "F_noise" }; }
+        }
+
+        public override string[] AllowedInputVariables { get { return new[] { "Y", "A", "d", "x" }; } }
+
+        public int Seed { get; private set; }
+
+        public override int TrainingPartitionStart { get { return 0; } }
+        public override int TrainingPartitionEnd { get { return trainingSamples; } }
+        public override int TestPartitionStart { get { return trainingSamples; } }
+        public override int TestPartitionEnd { get { return trainingSamples + testSamples; } }
+
+        public override List<List<double>> GenerateValues()
+        {
+            var rand = new MersenneTwister((uint)Seed);
+
+            var data = new List<List<double>>();
+            var Y = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+            var A = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+            var d = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+            var x = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
+
+            var F = new List<double>();
+
+            data.Add(Y);
+            data.Add(A);
+            data.Add(d);
+            data.Add(x);
+            data.Add(F);
+
+            for (var i = 0; i < Y.Count; i++)
+            {
+                var res = Y[i] * A[i] * x[i] / d[i];
+                F.Add(res);
+            }
+
+            var targetNoise = ValueGenerator.GenerateNoise(F, rand, noiseRatio);
+            if (targetNoise != null) data.Add(targetNoise);
+
+            return data;
+        }
+    }
+}
