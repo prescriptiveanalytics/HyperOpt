@@ -23,6 +23,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             var maxTreeDepthRange = typeof(AlgorithmParameter).GetProperty(nameof(AlgorithmParameter.MaxTreeDepth))?.GetCustomAttribute<RangeAttribute>();
             var maxTreeLengthRange = typeof(AlgorithmParameter).GetProperty(nameof(AlgorithmParameter.MaxTreeLength))?.GetCustomAttribute<RangeAttribute>();
 
+            var mutatorTypes = Enum.GetValues(typeof(MutatorType)).Cast<MutatorType>().ToArray();
+
             for (int i = 0; i < 10; i++)
             {
                 if (token.IsCancellationRequested) { break; }
@@ -31,7 +33,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     MutationRate = r.NextDouble() * ((double)mutationRange.Maximum - (double)mutationRange.Minimum) + (double)mutationRange.Minimum,
                     Generations = r.Next((int)generationsRange.Minimum, (int)generationsRange.Maximum),
                     MaxTreeDepth = r.Next((int)maxTreeDepthRange.Minimum, (int)maxTreeDepthRange.Maximum),
-                    MaxTreeLength = r.Next((int)maxTreeLengthRange.Minimum, (int)maxTreeLengthRange.Maximum)
+                    MaxTreeLength = r.Next((int)maxTreeLengthRange.Minimum, (int)maxTreeLengthRange.Maximum),
+                    MutatorType = mutatorTypes[r.Next(mutatorTypes.Length)]
                 };
 
                 var (algorithm, problem) = PrepareAlgorithm(feynmanInstance, parameter);

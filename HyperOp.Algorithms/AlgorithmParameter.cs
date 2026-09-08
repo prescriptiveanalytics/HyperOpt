@@ -2,6 +2,14 @@
 
 namespace HyperOp.Algorithms
 {
+    public enum MutatorType
+    {
+        NodeReplacement,
+        Subtree,
+        LocalPerturbation,
+        Combined
+    }
+
     public record AlgorithmParameter
     {
         [Range(1, 100)]
@@ -14,5 +22,6 @@ namespace HyperOp.Algorithms
         public int MaxTreeDepth { get; set; } = 100;
         [Range(1, 100)]
         public int MaxTreeLength { get; set; } = 100;
+        public MutatorType MutatorType { get; set; } = MutatorType.Combined;
     }
 }
