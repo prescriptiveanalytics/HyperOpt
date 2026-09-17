@@ -5,15 +5,18 @@ using HEAL.HeuristicLib.MachineLearning;
 using HEAL.HeuristicLib.Operators;
 using HEAL.HeuristicLib.Problems;
 using HEAL.HeuristicLib.Problems.MachineLearning;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public abstract class HyperParameterOptimizationAlgorithm
     {
         //We simply store the final population of each hyperparameter configuration, so we can analyze them later. Better to have the raw results than to later realize we missed something
-        public abstract Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(Feynman.FeynmanDescriptor feynmanInstance, CancellationToken token);
+        //TODO: Rethink how to track the best individuals across all hyperparameter configurations. We could store the best individual of each configuration, but then we would lose the context of the population. Maybe we can store the best individual and its fitness along with the hyperparameter configuration, so we can analyze them later.
+        public abstract Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(Feynman.FeynmanDescriptor feynmanInstance, int seed, int evaluations);
 
-        public (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem problem) PrepareAlgorithm(Feynman.FeynmanDescriptor feynmanInstance, AlgorithmParameter parameter)
+        protected (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem) PrepareAlgorithm(Feynman.FeynmanDescriptor feynmanInstance, AlgorithmParameter parameter)
         {
             var data = feynmanInstance.GenerateValues();
             var inputVariables = data.Take(data.Count - 1).ToList();
@@ -39,23 +42,23 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 );
 
             var mutator = CreateMutator(parameter.MutatorType);
-
             var algorithm = GeneticAlgorithm.Create(
                 new RampedHalfAndHalfTreeCreator(),
                 new SubtreeCrossover(),
                 mutator,
+                maximumGenerations: int.MaxValue,
                 selector: TournamentSelector.For(problem, tournamentSize: 5),
+                evaluator: new ProblemEvaluator<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>().LimitEvaluations(parameter.Evaluations),
                 populationSize: parameter.PopulationSize,
-                maximumGenerations: parameter.Generations,
-                mutationRate: parameter.MutationRate);
+                mutationRate: parameter.MutationRate
+                );            
 
             return (algorithm, problem);
         }
 
         private IMutator<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>> CreateMutator(MutatorType mutatorType)
         {
-            return mutatorType switch
-            {
+            return mutatorType switch {
                 MutatorType.NodeReplacement => new NodeReplacementMutator(),
                 MutatorType.Subtree => new SubtreeMutator(),
                 MutatorType.LocalPerturbation => new LocalPerturbationMutator(),
@@ -81,6 +84,5 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             }
             return inputMatrix;
         }
-
     }
 }

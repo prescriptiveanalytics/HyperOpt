@@ -82,7 +82,6 @@ namespace HyperOp.Algorithms
                     new LocalPerturbationMutator()),
                 selector: TournamentSelector.For(problem, tournamentSize: 5),
                 populationSize: hyperParameter.PopulationSize,
-                maximumGenerations: hyperParameter.Generations,
                 mutationRate: hyperParameter.MutationRate);
 
             var experiment = algorithm.AsGrid();

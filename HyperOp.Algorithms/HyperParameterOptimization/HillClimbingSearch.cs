@@ -9,7 +9,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public class HillClimbingSearch : HyperParameterOptimizationAlgorithm
     {
-        public override async Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(FeynmanDescriptor feynmanInstance, CancellationToken token)
+        public override async Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(FeynmanDescriptor feynmanInstance, int seed, int evaluations)
         {
             throw new NotImplementedException();
         }

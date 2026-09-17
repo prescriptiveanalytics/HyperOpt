@@ -17,11 +17,10 @@ namespace HyperOp.Algorithms
         [Range(0.0, 1.0)]
         public double MutationRate { get; set; } = 0.2;
         [Range(1, 100)]
-        public int Generations { get; set; } = 100;
-        [Range(1, 100)]
         public int MaxTreeDepth { get; set; } = 100;
         [Range(1, 100)]
         public int MaxTreeLength { get; set; } = 100;
         public MutatorType MutatorType { get; set; } = MutatorType.Combined;
+        public int Evaluations { get; set; } = 10000;
     }
 }
