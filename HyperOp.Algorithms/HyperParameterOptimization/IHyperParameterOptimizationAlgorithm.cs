@@ -16,7 +16,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         //TODO: Rethink how to track the best individuals across all hyperparameter configurations. We could store the best individual of each configuration, but then we would lose the context of the population. Maybe we can store the best individual and its fitness along with the hyperparameter configuration, so we can analyze them later.
         public abstract Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(Feynman.FeynmanDescriptor feynmanInstance, int seed, int evaluations);
 
-        protected (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem) PrepareAlgorithm(Feynman.FeynmanDescriptor feynmanInstance, AlgorithmParameter parameter)
+        protected (IAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, SymbolicRegressionProblem, PopulationState<ExpressionTree>> Alg, SymbolicRegressionProblem Problem) PrepareAlgorithm(Feynman.FeynmanDescriptor feynmanInstance, AlgorithmParameter parameter)
         {
             var data = feynmanInstance.GenerateValues();
             var inputVariables = data.Take(data.Count - 1).ToList();
@@ -42,7 +42,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 );
 
             var mutator = CreateMutator(parameter.MutatorType);
-            var algorithm = GeneticAlgorithm.Create(
+            var innerAlg = GeneticAlgorithm.Create(
                 new RampedHalfAndHalfTreeCreator(),
                 new SubtreeCrossover(),
                 mutator,
@@ -51,9 +51,10 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 evaluator: new ProblemEvaluator<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>().LimitEvaluations(parameter.Evaluations),
                 populationSize: parameter.PopulationSize,
                 mutationRate: parameter.MutationRate
-                );            
+                );
+            var alg = innerAlg.WithMaxEvaluatedCandidates(innerAlg.Evaluator, 1000);
 
-            return (algorithm, problem);
+            return (alg, problem);
         }
 
         private IMutator<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>> CreateMutator(MutatorType mutatorType)
