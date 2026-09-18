@@ -42,7 +42,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 };
 
                 var (algorithm, problem) = PrepareAlgorithm(feynmanInstance, parameter);
-                var populationState = await algorithm.CompleteAsync(problem, RandomNumberGenerator.Create(42));
+                var populationState = await algorithm.CompleteAsync(problem, RandomNumberGenerator.Create(seed));
 
                 ret.Add((parameter, populationState.Population));
             }

@@ -39,7 +39,8 @@ async Task ExecuteExperiments()
         new RandomSearch()
     };
 
-    List<FeynmanDescriptor> feynmanDescriptors = FeynmanInstanceProvider.LoadAvailableInstances().Take(10).ToList();
+    //Fixed Feynman instances seed per instance.
+    List<FeynmanDescriptor> feynmanDescriptors = FeynmanInstanceProvider.LoadAvailableInstances(42).Take(10).ToList();
     var allResults = new List<ResultDTO>();
 
     foreach (var algorithm in hyperOpAlgs)
