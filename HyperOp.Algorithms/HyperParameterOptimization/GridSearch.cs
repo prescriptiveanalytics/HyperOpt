@@ -9,7 +9,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public class GridSearch : HyperParameterOptimizationAlgorithm
     {
-        public override async Task<List<(AlgorithmParameter, Population<ExpressionTree>)>> Execute(FeynmanDescriptor feynmanInstance, int seed, int evaluations)
+        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
             throw new NotImplementedException();
         }

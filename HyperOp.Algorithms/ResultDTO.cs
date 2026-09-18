@@ -6,27 +6,45 @@ namespace HyperOp.Algorithms
 {
     public class ResultDTO
     {
-        public string AlgorithmName { get; set; }
-        public string FeynmanInstanceName { get; set; }
-        public int Repetition { get; set; }
-        public int Seed { get; set; }
-        public List<ResultDetail> ResultDetails { get; set; }
+        public required AlgorithmParameter Configuration { get; set; }
 
-        public class ResultDetail
+        public required int ConfigurationIndex { get; set; }
+
+        public required double BestFitness { get; set; }
+
+        public required double MeanPopulationFitness { get; set; }
+
+        public required double WorstPopulationFitness { get; set; }
+
+        public required double ExecutionTimeMs { get; set; }
+
+        public required int EvaluationsUsed { get; set; }
+
+        public required int EvaluationsLimit { get; set; }
+
+        public required int GenerationsCompleted { get; set; }
+
+        public required int PopulationSize { get; set; }
+
+        public required List<IndividualSnapshot> BestIndividualsSnapshot { get; set; }
+
+        public List<GenerationQualitySnapshot>? QualityCurve { get; set; }
+
+        public class IndividualSnapshot
         {
-            public AlgorithmParameter Parameter { get; set; }
-            public List<SimplifiedIndividual> Population { get; set; }
-
-
-            public class SimplifiedIndividual
-            {
-                public double Objective { get; set; }
-                public double Depth { get; set; }
-                public double Complexity { get; set; }
-                public double Length { get; set; }
-                public string InfixRepresentation { get; set; }
-            }
+            public required double ObjectiveValue { get; set; }
+            public required int Depth { get; set; }
+            public required int Length { get; set; }
+            public required double Complexity { get; set; }
+            public required string InfixRepresentation { get; set; }
         }
 
+        public class GenerationQualitySnapshot
+        {
+            public required int GenerationNumber { get; set; }
+            public required double BestQuality { get; set; }
+            public required double MedianQuality { get; set; }
+            public required double WorstQuality { get; set; }
+        }
     }
 }
