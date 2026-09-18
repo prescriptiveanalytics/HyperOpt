@@ -63,7 +63,7 @@ async Task ExecuteExperiments()
                     }
 
                     int seed = 42 + 100 * repetition;
-                    List<(AlgorithmParameter, Population<ExpressionTree>)> algRes = await algorithm.Execute(feynmanInstance, seed, 10000);
+                    List<(AlgorithmParameter, Population<ExpressionTree>)> algRes = await algorithm.Execute(feynmanInstance, seed, evaluations);
                     allResults.Add(ResultHandler.ConvertToResultDTO(algRes, algorithm.GetType().Name, feynmanInstance.GetType().Name, repetition, seed));
 
                     //Immediately save all available results to a file, so that we can analyze them later or resume the experiment if it was interrupted.
@@ -76,7 +76,6 @@ async Task ExecuteExperiments()
                     Console.WriteLine($"Error executing algorithm {algorithm.GetType().Name} on instance {feynmanInstance.GetType().Name}: {ex.Message}");
                 }
             }
-
         }
         ResultHandler.WriteResultsToFile($"./results/all_results.json", allResults);
     }
