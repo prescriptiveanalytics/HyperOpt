@@ -38,7 +38,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 operations: Symbols.DefaultOperations,
                 variables: feynmanInstance.AllowedInputVariables
             );
-
+            
             var problem = new SymbolicRegressionProblem(
                 regressionData,
                 Metrics.PearsonR2,
@@ -55,7 +55,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 maximumGenerations: int.MaxValue,  // Let evaluationLimit be the stopping criterion
                 mutationRate: parameter.MutationRate
                 );
-            algorithm.Evaluator.LimitEvaluations(evaluationsLimit);
+            //algorithm.Evaluator.LimitEvaluations(evaluationsLimit);
 
             return (algorithm, problem);
         }

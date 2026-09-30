@@ -4,10 +4,25 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>5ae12186-f5c4-48dd-a2d8-a095e1856115</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Resources\systemPrompt.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\systemPrompt.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="HEAL.HeuristicLib" Version="0.1.168-alpha" />
+    <PackageReference Include="LlmTornado" Version="3.8.68" />
+    <PackageReference Include="LlmTornado.Agents" Version="1.0.64" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.12" />
   </ItemGroup>
 
 </Project>

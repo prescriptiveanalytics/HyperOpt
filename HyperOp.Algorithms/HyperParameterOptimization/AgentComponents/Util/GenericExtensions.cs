@@ -1,4 +1,4 @@
-﻿namespace HyperOp.Agent.Util
+﻿namespace HyperOp.Algorithms.HyperParameterOptimization.AgentComponents.Util
 {
     public static class GenericExtensions
     {
