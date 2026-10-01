@@ -3,6 +3,7 @@ using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Feynman;
+using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Reflection;
@@ -11,26 +12,6 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public class GridSearch : HyperParameterOptimizationAlgorithm
     {
-        private IEnumerable<double> Discretize(RangeAttribute range, int numberOfPoints)
-        {
-            if (numberOfPoints <= 0)
-                throw new ArgumentOutOfRangeException(nameof(numberOfPoints));
-
-            double min = Convert.ToDouble(range.Minimum);
-            double max = Convert.ToDouble(range.Maximum);
-
-            if (numberOfPoints == 1)
-            {
-                yield return min;
-                yield break;
-            }
-
-            for (int i = 0; i < numberOfPoints; i++)
-            {
-                yield return min + i * (max - min) / (numberOfPoints - 1);
-            }
-        }
-
         // Generates a grid of hyperparameter combinations based on how many discretization steps are specified
         // Grid size is product of parameters Default = 5.000 Configurations (gets really large fast!)
         private List<AlgorithmParameter> GenerateGrid(int evaluations, int populationSize = 10, int mutationRate = 5, int maxTreeDepth = 5, int maxTreeLength = 5)
@@ -53,17 +34,17 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
             var mutatorTypes = Enum.GetValues<MutatorType>();
 
-            var populationValues = Discretize(popRange!, populationSize)
+            var populationValues = this.Discretize(popRange!, populationSize)
                 .Select(x => (int)Math.Round(x))
                 .Distinct(); // Distinct necesssary due to potential rounding issues when discretizing
 
-            var mutationValues = Discretize(mutationRange!, mutationRate);
+            var mutationValues = this.Discretize(mutationRange!, mutationRate);
 
-            var maxTreeDepthValues = Discretize(maxTreeDepthRange!, maxTreeDepth)
+            var maxTreeDepthValues = this.Discretize(maxTreeDepthRange!, maxTreeDepth)
                 .Select(x => (int)Math.Round(x))
                 .Distinct();
 
-            var maxTreeLengthValues = Discretize(maxTreeLengthRange!, maxTreeLength)
+            var maxTreeLengthValues = this.Discretize(maxTreeLengthRange!, maxTreeLength)
                 .Select(x => (int)Math.Round(x))
                 .Distinct();
 
@@ -84,49 +65,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 }
             ).ToList();
         }
-
-        private (int generationCount,
-        double bestFitness,
-        double meanFitness,
-        double worstFitness,
-        List<ResultDTO.IndividualSnapshot> snapshots,
-        List<ResultDTO.GenerationQualitySnapshot> qualitySnapshots)
-        EvaluateFinalState(PopulationState<ExpressionTree> finalState, List<BestMedianWorstEntry<ExpressionTree>> qualityCurve)
-        {
-            int generationCount = qualityCurve.Count;
-            var worstOfFirstGeneration = qualityCurve.First().Worst.ObjectiveVector[0];
-
-            // Extract metrics from population using API's ObjectiveVector
-            var objectives = finalState.Population.Select(ind => ind.ObjectiveVector[0]).ToList();
-            var bestFitness = objectives.Max();
-            var meanFitness = objectives.Average();
-            var worstFitness = objectives.Min();
-
-            // Create individual snapshots for the best individuals
-            var snapshots = finalState.Population
-                .Select(ind => new ResultDTO.IndividualSnapshot
-                {
-                    ObjectiveValue = ind.ObjectiveVector[0],
-                    Depth = ind.Candidate.Depth,
-                    Length = ind.Candidate.Length,
-                    Complexity = ind.Candidate.Complexity,
-                    InfixRepresentation = ind.Candidate.ToInfixString()
-                })
-                .ToList();
-
-            // Create per-generation quality curve snapshots
-            List<ResultDTO.GenerationQualitySnapshot> qualitySnapshots = qualityCurve
-                .Select((gen, genIndex) => new ResultDTO.GenerationQualitySnapshot
-                {
-                    GenerationNumber = genIndex,
-                    BestQuality = gen.Best.ObjectiveVector[0],
-                    MedianQuality = gen.Median.ObjectiveVector[0],
-                    WorstQuality = gen.Worst.ObjectiveVector[0]
-                })
-                .ToList();
-
-            return (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots);
-        }
+        
 
         public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
@@ -150,8 +89,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 stopwatch.Stop();
 
                 var qualityCurve = run.GetResult(qualityAnalyzer);
-                var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = EvaluateFinalState(finalState, qualityCurve);
-
+                var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
+                
                 // Create result record
                 var result = new ResultDTO
                 {

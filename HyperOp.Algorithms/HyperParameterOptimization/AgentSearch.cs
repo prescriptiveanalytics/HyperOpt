@@ -5,6 +5,7 @@ using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Feynman;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents.Util;
+using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using LlmTornado;
 using LlmTornado.Agents;
 using LlmTornado.Chat;
@@ -122,49 +123,6 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             return Results;
         }
 
-        private (int generationCount, 
-                double bestFitness, 
-                double meanFitness, 
-                double worstFitness, 
-                List<ResultDTO.IndividualSnapshot> snapshots, 
-                List<ResultDTO.GenerationQualitySnapshot> qualitySnapshots) 
-            EvaluateFinalState(PopulationState<ExpressionTree> finalState, List<BestMedianWorstEntry<ExpressionTree>> qualityCurve)
-        {
-            int generationCount = qualityCurve.Count;
-            var worstOfFirstGeneration = qualityCurve.First().Worst.ObjectiveVector[0];
-
-            // Extract metrics from population using API's ObjectiveVector
-            var objectives = finalState.Population.Select(ind => ind.ObjectiveVector[0]).ToList();
-            var bestFitness = objectives.Max();
-            var meanFitness = objectives.Average();
-            var worstFitness = objectives.Min();
-
-            // Create individual snapshots for the best individuals
-            var snapshots = finalState.Population
-                .Select(ind => new ResultDTO.IndividualSnapshot
-                {
-                    ObjectiveValue = ind.ObjectiveVector[0],
-                    Depth = ind.Candidate.Depth,
-                    Length = ind.Candidate.Length,
-                    Complexity = ind.Candidate.Complexity,
-                    InfixRepresentation = ind.Candidate.ToInfixString()
-                })
-                .ToList();
-
-            // Create per-generation quality curve snapshots
-            List<ResultDTO.GenerationQualitySnapshot> qualitySnapshots = qualityCurve
-                .Select((gen, genIndex) => new ResultDTO.GenerationQualitySnapshot
-                {
-                    GenerationNumber = genIndex,
-                    BestQuality = gen.Best.ObjectiveVector[0],
-                    MedianQuality = gen.Median.ObjectiveVector[0],
-                    WorstQuality = gen.Worst.ObjectiveVector[0]
-                })
-                .ToList();
-
-            return (generationCount,bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots);
-        }
-
         // ------------- Tool Calls --------------
         [Description(
             "Runs a symbolic regression algorithm with algorithm parameters and maximum evaluations per configruation on the current available problem data." +
@@ -194,7 +152,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             stopwatch.Stop();
 
             var qualityCurve = run.GetResult(qualityAnalyzer);
-            var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = EvaluateFinalState(finalState, qualityCurve);
+            var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
 
             // Create result record
             var result = new ResultDTO

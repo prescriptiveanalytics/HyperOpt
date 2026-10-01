@@ -1,14 +1,11 @@
 ﻿using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Feynman;
-using System;
-using System.Collections.Generic;
+using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Reflection;
-using System.Text;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
@@ -59,41 +56,14 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 stopwatch.Stop();
 
                 var qualityCurve = run.GetResult(qualityAnalyzer);
-                int generationCount = qualityCurve.Count;
-                var worstOfFirstGeneration = qualityCurve.First().Worst.ObjectiveVector[0];
 
-                // Extract metrics from population using API's ObjectiveVector
-                var objectives = finalState.Population.Select(ind => ind.ObjectiveVector[0]).ToList();
-                var bestFitness = objectives.Max();
-                var meanFitness = objectives.Average();
-                var worstFitness = objectives.Min();
-
-                // Create individual snapshots for the best individuals
-                var snapshots = finalState.Population
-                    .Select(ind => new ResultDTO.IndividualSnapshot {
-                        ObjectiveValue = ind.ObjectiveVector[0],
-                        Depth = ind.Candidate.Depth,
-                        Length = ind.Candidate.Length,
-                        Complexity = ind.Candidate.Complexity,
-                        InfixRepresentation = ind.Candidate.ToInfixString()
-                    })
-                    .ToList();
-
-                // Create per-generation quality curve snapshots
-                var qualitySnapshots = qualityCurve
-                    .Select((gen, genIndex) => new ResultDTO.GenerationQualitySnapshot
-                    {
-                        GenerationNumber = genIndex,
-                        BestQuality = gen.Best.ObjectiveVector[0],
-                        MedianQuality = gen.Median.ObjectiveVector[0],
-                        WorstQuality = gen.Worst.ObjectiveVector[0]
-                    })
-                    .ToList();
+                var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
 
                 // Create result record
-                var result = new ResultDTO {
+                var result = new ResultDTO
+                {
                     Configuration = parameter,
-                    ConfigurationIndex = configIndex,
+                    ConfigurationIndex = -1, // ??? count somehow everytime the same configuration is used?
                     BestFitness = bestFitness,
                     MeanPopulationFitness = meanFitness,
                     WorstPopulationFitness = worstFitness,
