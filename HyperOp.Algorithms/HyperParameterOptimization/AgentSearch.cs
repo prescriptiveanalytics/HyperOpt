@@ -9,7 +9,6 @@ using LlmTornado;
 using LlmTornado.Agents;
 using LlmTornado.Chat;
 using LlmTornado.Chat.Models;
-using LlmTornado.FineTuning;
 using Microsoft.Extensions.Configuration;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -20,9 +19,17 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
     public record Experiment
     {
         public required AlgorithmParameter HyperParameters { get; init; }
-        public required double QualityMetrik { get; init; }
-        //public string? Expression { get; init; } = string.Empty;
-        public int RemainingEvaluations { get; init; }
+        public required double BestFitness { get; init; }
+        public required double Improvement { get; init; }
+        public required bool IsNewBest { get; init; }
+        public int EvaluationsUsed { get; init; }
+    }
+
+    public record EvaluationBudget
+    {
+        public required int TotalEvaluations { get; init; }
+        public required int UsedEvaluations { get; init; }
+        public required int RemainingEvaluations { get; init; }
     }
 
     public class AgentSearch : HyperParameterOptimizationAlgorithm
@@ -35,8 +42,11 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         private TornadoAgent? _agent;
         private int _maxTurns;
         private string? _systemPrompt;
-        private int _currentEvaluations = 0;
-        private int _remainingEvaluations;
+        private int _currentEvaluations;
+        private int _totalEvaluations;
+        private int RemainingEvaluations => _totalEvaluations - _currentEvaluations;
+
+        public List<Experiment> _experimentHistory = new List<Experiment>();
 
         // Hold feynman instance seperately and make available for changes
         public FeynmanDescriptor? FeynmanInstance { get; set; }
@@ -63,7 +73,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     client: _api,
                     model: _model,
                     instructions: _systemPrompt,
-                    tools: [RunSymbolicRegression],
+                    tools: [RunSymbolicRegression, GetExperimentHistory], //, GetBestExperiment, GetRemainingEvaluations],
                     streaming: agentParameters.Streaming
                     );
             _agent.Options.Temperature = agentParameters.Temperature;
@@ -95,8 +105,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
             // The maximum number of turns (eg. evaluations of hyperparamter configurations) that the agent is allowed to take
             //_maxTurns = numConfigurations * evaluationsPerConfiguration;  // This is a simplification, we could also let the agent decide how many evaluations to use per configuration
-            _remainingEvaluations = numConfigurations * evaluationsPerConfiguration;
-
+            _totalEvaluations = numConfigurations * evaluationsPerConfiguration;
+            _currentEvaluations = 0;
             // Now run Agent, tell him that it must balance the number of configurations of hyperparameters and the number of evaluations per configuration OR do this in Code?
             var sw = Stopwatch.StartNew();
 
@@ -165,8 +175,10 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         )]
         public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter, int evaluationsPerConfiguration)
         {
-            // keep track of number of evaluations already used and stop if we reach the maximum allowed evaluations
-            _currentEvaluations += evaluationsPerConfiguration;
+            if (evaluationsPerConfiguration > RemainingEvaluations)
+                throw new InvalidOperationException(
+                    $"Requested {evaluationsPerConfiguration} evaluations, " +
+                    $"but only {RemainingEvaluations} remain.");
 
             Console.WriteLine($"Running symbolic regression with the following parameters:{algorithmParameter}");
             // Prepare algorithm with this configuration
@@ -201,14 +213,55 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 QualityCurve = qualitySnapshots
             };
 
-            _remainingEvaluations -= result.EvaluationsUsed;
+            _currentEvaluations += result.EvaluationsUsed;
+
+            // Compute if improvement to previous best
+            double previousBest = Results.Count > 0 ? Results.Max(r => r.BestFitness) : -1;
+            double improvement = previousBest >= 0 ? result.BestFitness - previousBest : 100.00;
+            bool isNewBest = result.BestFitness > previousBest;
 
             // What to provide to LLM to assert how good a configuration was? Simply best fitness?
             Results.Add(result);
             // Agent would benefit from a return type that is a bit simpler
-            Console.WriteLine($"Remaining Evaluations: {_remainingEvaluations}");
-            return new Experiment { HyperParameters = algorithmParameter, QualityMetrik = bestFitness, RemainingEvaluations = _remainingEvaluations };
+            Console.WriteLine($"Remaining Evaluations: {RemainingEvaluations}");
+            var experiment = new Experiment { HyperParameters = algorithmParameter, 
+                BestFitness = bestFitness,
+                Improvement = improvement,
+                IsNewBest = isNewBest,
+                EvaluationsUsed = result.EvaluationsUsed,
+            };
+            _experimentHistory.Add(experiment);
+            return experiment;
+
             //return new Experiment { HyperParameters = algorithmParameter, QualityMetrik = 0.0 };
+        }
+
+        [Description(
+            "Use GetExperimentHistory when you need to review previous experiments or compare multiple configurations."
+        )]
+        public List<Experiment> GetExperimentHistory()
+        {
+            return _experimentHistory;
+        }
+
+        [Description(
+            "Returns the best hyperparameter configuration evaluated so far and its fitness."
+        )]
+        public Experiment? GetBestExperiment()
+        {
+            return _experimentHistory.OrderBy(e => e.BestFitness).FirstOrDefault();
+        }
+
+        [Description(
+            "Returns the current evaluation budget, including total, used, and remaining evaluations."
+        )]
+        public EvaluationBudget GetRemainingEvaluations()
+        {
+            return new EvaluationBudget {
+                TotalEvaluations = _totalEvaluations,
+                UsedEvaluations = _currentEvaluations,
+                RemainingEvaluations = RemainingEvaluations
+            };
         }
     }
 }
