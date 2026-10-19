@@ -35,6 +35,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
     public class AgentSearch : HyperParameterOptimizationAlgorithm
     {
+        //TODO: Habs adapt according to the numer of evaluations / number of configurations
         // Add all agent relavent parameters here, otherwise we cannot refere to the prepare algorithm function
 
         // Initialize the respective LLM Tornado components
@@ -96,7 +97,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             return openRouterAPIKey;
         }
 
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
+        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int evaluationBudget)
         {
             Results = new List<ResultDTO>();
             var random = new Random(seed);
@@ -106,7 +107,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
             // The maximum number of turns (eg. evaluations of hyperparamter configurations) that the agent is allowed to take
             //_maxTurns = numConfigurations * evaluationsPerConfiguration;  // This is a simplification, we could also let the agent decide how many evaluations to use per configuration
-            _totalEvaluations = numConfigurations * evaluationsPerConfiguration;
+            _totalEvaluations = evaluationBudget;
             _currentEvaluations = 0;
             // Now run Agent, tell him that it must balance the number of configurations of hyperparameters and the number of evaluations per configuration OR do this in Code?
             var sw = Stopwatch.StartNew();

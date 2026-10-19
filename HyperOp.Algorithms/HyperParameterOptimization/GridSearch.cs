@@ -67,19 +67,19 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         }
         
 
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
+        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int budget)
         {
             var results = new List<ResultDTO>();
 
             // TODO: How to deal with num Configurations?
-            var configurations = GenerateGrid(evaluationsPerConfiguration);
+            var configurations = GenerateGrid(budget);
             int configIndex = 0;
             // now try all
             foreach (var config in configurations)
             {
                 Console.WriteLine($"Running symbolic regression with the following parameters:{config}");
-                var (alg, problem) = PrepareAlgorithm(feynmanInstance, config, evaluationsPerConfiguration);
-                var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsPerConfiguration);
+                var (alg, problem) = PrepareAlgorithm(feynmanInstance, config, budget);
+                var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, budget);
                 // Execute with timing
                 var qualityAnalyzer = Analyzer.BestMedianWorst(algorithm);
                 var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(seed + configIndex)).WithAnalyzer(qualityAnalyzer);

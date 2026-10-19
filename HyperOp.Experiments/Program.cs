@@ -6,16 +6,28 @@ using HyperOp.Algorithms.HyperParameterOptimization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-const int numConfigurations = 100;
-const int evaluationsPerConfiguration = 10000;
+//configuration for the experiments are more or less hardcoded as they are fixed for the "dumb" approaches (GridSearch, RandomSearch, HillClimbingSearch)
 const int repetitions = 3;
-const int totalEvaluationBudget = numConfigurations * evaluationsPerConfiguration;
+List<(int, int)> budgetVariations = new List<(int, int)>()
+{
+    (10, 1_000_000), // 10M evaluations
+    (100, 100_000), // 10M evaluations
+    (1000, 10_000), // 10M evaluations
+    (10000, 1_000), // 10M evaluations
+    (100000, 100), // 10M evaluations
+};
+
 //TODO: Think about whether we also want to include more configurations with fewer evaluations per configuration
 //or fewer configurations with more evaluations per configuration.
 //This is a trade-off between exploring more configurations and evaluating each configuration more thoroughly.
 //This variation could be utilized to analyze the impact of the number of configurations vs. evaluations
 //per configuration on the performance of the HPO algorithms and reduce our bias, basically making the experiments
 //more robust and fair in a sense.
+
+//TODO: How many evaluations do frontier approaches use right now?
+//TODO: fHo
+//Command line parameter: benchmark-instance, algorithm
+//TODO: also think about output path so we can run multiple experiments in parallel and not overwrite each other's results
 
 //Clean-Up for Debugging
 #if DEBUG
@@ -48,54 +60,59 @@ async Task ExecuteExperiments()
         {
             foreach (int repetition in Enumerable.Range(1, repetitions))
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {feynmanInstance.GetType().Name} " +
-                    $"(Repetition {repetition}/{repetitions}, Budget: {totalEvaluationBudget:N0} evals)");
-
-                try
+                foreach (var entry in budgetVariations)
                 {
-                    string resultFilePath = $"./results/{algorithm.GetType().Name}_{feynmanInstance.GetType().Name}_{repetition}.json";
-                    if (File.Exists(resultFilePath))
+                    int numConfigurations = entry.Item1;
+                    int evaluationsPerConfiguration = entry.Item2;
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {feynmanInstance.GetType().Name} " +
+                        $"(Repetition {repetition}/{repetitions}, Configurations: {numConfigurations}, Evaluations per Configuration: {evaluationsPerConfiguration})");
+
+                    try
                     {
-                        Console.WriteLine($"  → Result already exists. Loading from cache.");
-                        allResults.Add(LoadResult(resultFilePath));
-                        continue;
+                        string resultFilePath = $"./results/{algorithm.GetType().Name}_{feynmanInstance.GetType().Name}_{repetition}.json";
+                        if (File.Exists(resultFilePath))
+                        {
+                            Console.WriteLine($"  → Result already exists. Loading from cache.");
+                            allResults.Add(LoadResult(resultFilePath));
+                            continue;
+                        }
+
+                        // HPO algorithm seed varies per repetition (arbitrary base seed diversification)
+                        int hpoSeed = 42 + (100 * repetition);
+
+                        // Execute with a somewhat fair budget: numConfigurations × evaluationsPerConfiguration
+                        List<ResultDTO> algRes = await algorithm.Execute(
+                            feynmanInstance,
+                            hpoSeed,
+                            numConfigurations,
+                            evaluationsPerConfiguration
+                            );
+
+                        // Save results directly
+                        var allConfigsResult = new AggregatedResultDTO {
+                            AlgorithmName = algorithm.GetType().Name,
+                            InstanceName = feynmanInstance.GetType().Name,
+                            Repetition = repetition,
+                            Seed = hpoSeed,
+                            TotalConfigurationsEvaluated = algRes.Count,
+                            ConfigurationResults = algRes
+                        };
+
+                        allResults.Add(allConfigsResult);
+                        SaveResult(resultFilePath, allConfigsResult);
+
+                        // Summary stats
+                        var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
+                        Console.WriteLine($"Evaluated {algRes.Count} configurations. Best fitness: {bestConfig.BestFitness:F4}");
                     }
-
-                    // HPO algorithm seed varies per repetition (arbitrary base seed diversification)
-                    int hpoSeed = 42 + (100 * repetition);
-
-                    // Execute with a somewhat fair budget: numConfigurations × evaluationsPerConfiguration
-                    List<ResultDTO> algRes = await algorithm.Execute(
-                        feynmanInstance,
-                        hpoSeed,
-                        numConfigurations,
-                        evaluationsPerConfiguration
-                        );
-
-                    // Save results directly
-                    var allConfigsResult = new AggregatedResultDTO {
-                        AlgorithmName = algorithm.GetType().Name,
-                        InstanceName = feynmanInstance.GetType().Name,
-                        Repetition = repetition,
-                        Seed = hpoSeed,
-                        TotalConfigurationsEvaluated = algRes.Count,
-                        ConfigurationResults = algRes
-                    };
-
-                    allResults.Add(allConfigsResult);
-                    SaveResult(resultFilePath, allConfigsResult);
-
-                    // Summary stats
-                    var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
-                    Console.WriteLine($"Evaluated {algRes.Count} configurations. Best fitness: {bestConfig.BestFitness:F4}");
-                }
-                catch (NotImplementedException)
-                {
-                    Console.WriteLine($"Not implemented yet.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error: {ex.Message}");
+                    catch (NotImplementedException)
+                    {
+                        Console.WriteLine($"Not implemented yet.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error: {ex.Message}");
+                    }
                 }
             }
         }
