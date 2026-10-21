@@ -14,8 +14,14 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 
+// version without GPU
 // docker run -d --name ollama -p 127.0.0.1:11434:11434 -v ollama-data:/root/.ollama ollama/ollama
 // docker exec ollama ollama pull qwen3:8b
+
+// version with GPU
+// docker run -d --name ollama --gpus all -p 127.0.0.1:11434:11434 -v ollama-data:/root/.ollama ollama/ollama
+// docker exec ollama ollama pull qwen3:8b
+
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public record Experiment
