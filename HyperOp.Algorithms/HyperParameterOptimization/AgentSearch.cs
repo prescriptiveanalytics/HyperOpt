@@ -130,7 +130,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     client: _api!,
                     model: _model!,
                     instructions: _systemPrompt,
-                    tools: [RunSymbolicRegression, GetExperimentHistory, GetRemainingEvaluations],
+                    tools: [(Func<int, double, int, int, MutatorType, Task<Experiment>>)RunSymbolicRegression, GetExperimentHistory, GetRemainingEvaluations],
                     streaming: agentParameters.Streaming
                     );
             _agent.Options.Temperature = agentParameters.Temperature;
@@ -169,7 +169,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
             // The maximum number of turns (eg. evaluations of hyperparamter configurations) that the agent is allowed to take
             //_maxTurns = numConfigurations * evaluationsPerConfiguration;  // This is a simplification, we could also let the agent decide how many evaluations to use per configuration
-            _totalEvaluations = numConfigurations * evaluationsPerConfiguration;
+            _numConfigurations = numConfigurations;
+            _evaluationsPerConfiguration = evaluationsPerConfiguration;
+            _totalEvaluations = totalEvaluations;
             _currentEvaluations = 0;
             var sw = Stopwatch.StartNew();
 
@@ -189,7 +191,12 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             );
 
             var responseTime = sw.Elapsed;
-            Console.WriteLine($"Exit reason: {_agent.LastRunExitReason}");
+            var exitReason = _agent.LastRunExitReason;
+            Console.WriteLine($"Exit reason: {exitReason?.GetType().Name}: {exitReason?.Message}");
+            if (Results.Count == 0)
+                throw new InvalidOperationException(
+                    $"AgentSearch evaluated no configurations. Exit reason: {exitReason?.GetType().Name}: {exitReason?.Message}",
+                    exitReason?.Exception);
             sw.Restart();
 
             return Results;
@@ -202,6 +209,19 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             "PopulationSize must not exceed the configured evaluation limit. " +
             "Returns BestFitness (higher is better), Improvement, IsNewBest, EvaluationsUsed and RemainingEvaluations."
         )]
+        private Task<Experiment> RunSymbolicRegression(
+            int populationSize, double mutationRate, int maxTreeDepth, int maxTreeLength, MutatorType mutatorType)
+        {
+            return RunSymbolicRegression(new AlgorithmParameter
+            {
+                PopulationSize = populationSize,
+                MutationRate = mutationRate,
+                MaxTreeDepth = maxTreeDepth,
+                MaxTreeLength = maxTreeLength,
+                MutatorType = mutatorType
+            });
+        }
+
         public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter)
         {
             if (FeynmanInstance is null || _evaluationsPerConfiguration <= 0)
