@@ -21,6 +21,5 @@ namespace HyperOp.Algorithms
         [Range(3, 100)]
         public int MaxTreeLength { get; set; } = 100;
         public MutatorType MutatorType { get; set; } = MutatorType.Combined;
-        public int Evaluations { get; set; } = 10000;
     }
 }

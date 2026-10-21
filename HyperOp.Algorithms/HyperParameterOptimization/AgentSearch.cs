@@ -1,6 +1,5 @@
-﻿using HEAL.HeuristicLib.Algorithms;
+using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Feynman;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
@@ -15,6 +14,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 
+// docker run -d --name ollama -p 127.0.0.1:11434:11434 -v ollama-data:/root/.ollama ollama/ollama
+// docker exec ollama ollama pull qwen3:8b
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public record Experiment
@@ -24,6 +25,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         public required double Improvement { get; init; }
         public required bool IsNewBest { get; init; }
         public int EvaluationsUsed { get; init; }
+        public int RemainingEvaluations { get; init; }
     }
 
     public record EvaluationBudget
@@ -46,6 +48,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         private string? _systemPrompt;
         private int _currentEvaluations;
         private int _totalEvaluations;
+        private int _evaluationsPerConfiguration;
+        private int _numConfigurations;
         private int RemainingEvaluations => _totalEvaluations - _currentEvaluations;
 
         public List<Experiment> _experimentHistory = new List<Experiment>();
@@ -55,31 +59,75 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         public int Seed { get; set; }
         public List<ResultDTO> Results { get; set; } = new List<ResultDTO>();
 
-        public AgentSearch()
+        public AgentSearch(bool useOLlama = true)
+            : this(useOLlama ? CreateOllamaParameters() : new AgentParameter())
         {
-            // use default agent parameters
-            Initialize(new AgentParameter());
+        }
+
+        public static AgentParameter CreateOllamaParameters()
+        {
+            return new AgentParameter
+            {
+                Provider = LlmTornado.Code.LLmProviders.Custom,
+                ModelName = "qwen3:8b",
+                OllamaBaseUrl = "http://localhost:11434", //"http://ollama:11434",
+                Streaming = false
+            };
+        }
+
+        public AgentSearch(AgentParameter agentParameters)
+        {
+            Initialize(agentParameters);
         }
 
         public void Initialize(AgentParameter agentParameters)
+        {
+            switch (agentParameters.Provider)
+            {
+                case LlmTornado.Code.LLmProviders.OpenRouter:
+                    InitializeOpenRouter(agentParameters);
+                    break;
+                case LlmTornado.Code.LLmProviders.Custom:
+                    InitializeOllama(agentParameters);
+                    break;
+                default:
+                    throw new NotSupportedException($"AgentSearch does not support provider {agentParameters.Provider}.");
+            }
+        }
+
+        public void InitializeOpenRouter(AgentParameter agentParameters)
         {
             string openRouterAPIKey = GetAPIKeyFromConfiguration();
             _api = new TornadoApi(LlmTornado.Code.LLmProviders.OpenRouter, openRouterAPIKey);
             _model = new ChatModel(agentParameters.ModelName, LlmTornado.Code.LLmProviders.OpenRouter);
 
+            InitializeAgent(agentParameters);
+            _agent!.Options.ServiceTier = agentParameters.ServiceTiers;
+        }
+
+        public void InitializeOllama(AgentParameter agentParameters)
+        {
+            _api = new TornadoApi(new Uri(agentParameters.OllamaBaseUrl));
+            _model = new ChatModel(agentParameters.ModelName, LlmTornado.Code.LLmProviders.Custom);
+
+            InitializeAgent(agentParameters);
+            _agent!.Options.ReasoningEffort = LlmTornado.Code.ChatReasoningEfforts.None; // Disable reasoning locally
+        }
+
+        private void InitializeAgent(AgentParameter agentParameters)
+        {
             // Taken from aisra Code
             _systemPrompt = Assembly.GetExecutingAssembly()
                     .Let(asm => asm.ReadEmbeddedTextFile($"{asm.GetName().Name}.Resources.{agentParameters.SytstemPrompt}.md"));
 
             _agent = new TornadoAgent(
-                    client: _api,
-                    model: _model,
+                    client: _api!,
+                    model: _model!,
                     instructions: _systemPrompt,
-                    tools: [RunSymbolicRegression, GetExperimentHistory], //, GetBestExperiment, GetRemainingEvaluations],
+                    tools: [RunSymbolicRegression, GetExperimentHistory, GetRemainingEvaluations],
                     streaming: agentParameters.Streaming
                     );
             _agent.Options.Temperature = agentParameters.Temperature;
-            _agent.Options.ServiceTier = agentParameters.ServiceTiers;
             _maxTurns = agentParameters.Turns;
         }
 
@@ -97,28 +145,45 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             return openRouterAPIKey;
         }
 
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int evaluationBudget)
+        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
+            ArgumentNullException.ThrowIfNull(feynmanInstance);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(numConfigurations);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(evaluationsPerConfiguration);
+            if (evaluationsPerConfiguration < 10)
+                throw new ArgumentOutOfRangeException(nameof(evaluationsPerConfiguration),
+                    "At least 10 evaluations are required for the minimum population size.");
+            int totalEvaluations = checked(numConfigurations * evaluationsPerConfiguration);
+
             Results = new List<ResultDTO>();
-            var random = new Random(seed);
+            _experimentHistory.Clear();
 
             FeynmanInstance = feynmanInstance;
             Seed = seed;
 
             // The maximum number of turns (eg. evaluations of hyperparamter configurations) that the agent is allowed to take
             //_maxTurns = numConfigurations * evaluationsPerConfiguration;  // This is a simplification, we could also let the agent decide how many evaluations to use per configuration
-            _totalEvaluations = evaluationBudget;
+            _totalEvaluations = numConfigurations * evaluationsPerConfiguration;
             _currentEvaluations = 0;
-            // Now run Agent, tell him that it must balance the number of configurations of hyperparameters and the number of evaluations per configuration OR do this in Code?
             var sw = Stopwatch.StartNew();
 
             Conversation result = await _agent!.Run(
-                "", // TODO: Think about agent input
+                $"Optimize symbolic regression. Total budget: {_totalEvaluations} evaluations. " +
+                $"Evaluate at most {numConfigurations} configurations. " +
+                $"C# assigns {evaluationsPerConfiguration} evaluations to each run. " +
+                //"First call RunSymbolicRegression with baseline algorithmParameter=" +
+                //System.Text.Json.JsonSerializer.Serialize(new AlgorithmParameter
+                //{
+                //    PopulationSize = Math.Min(100, evaluationsPerConfiguration)
+                //}) +
+                //". " +
+                "Try improvements while evaluation budget remains.",
                 maxTurns: _maxTurns
                 // Think about cancelation token
             );
 
             var responseTime = sw.Elapsed;
+            Console.WriteLine($"Exit reason: {_agent.LastRunExitReason}");
             sw.Restart();
 
             return Results;
@@ -126,14 +191,28 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         // ------------- Tool Calls --------------
         [Description(
-            "Runs a symbolic regression algorithm with algorithm parameters and maximum evaluations per configruation on the current available problem data." +
-            "Maximum Evaluations determines how many evaluation actions the GA-SR algorithm can take for the given configuration and must be set to a reasonable number with respect to " +
-            "generation count and population size, since for each individual in each generation there is at least one evaluation. Eg. with 10 generations and 100 population size we need at least 1000 evaluations." +
-            "It must be lower or equal to the RemainingEvaluations available." +
-            "Returns an Experiment record with the hyperparameters and the best fitness achieved."
+            "Runs symbolic regression on the current problem. " +
+            "Supply only hyperparameters; C# controls evaluation limits and the number of configurations. " +
+            "PopulationSize must not exceed the configured evaluation limit. " +
+            "Returns BestFitness (higher is better), Improvement, IsNewBest, EvaluationsUsed and RemainingEvaluations."
         )]
-        public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter, int evaluationsPerConfiguration)
+        public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter)
         {
+            if (FeynmanInstance is null || _evaluationsPerConfiguration <= 0)
+                throw new InvalidOperationException("Execute must initialize the regression problem and evaluation limits first.");
+            if (Results.Count >= _numConfigurations)
+                throw new InvalidOperationException("The configured number of regression runs has been reached.");
+            int evaluationsPerConfiguration = _evaluationsPerConfiguration;
+            ArgumentNullException.ThrowIfNull(algorithmParameter);
+            System.ComponentModel.DataAnnotations.Validator.ValidateObject(
+                algorithmParameter,
+                new System.ComponentModel.DataAnnotations.ValidationContext(algorithmParameter),
+                validateAllProperties: true);
+            if (!Enum.IsDefined(algorithmParameter.MutatorType))
+                throw new ArgumentException("Unknown mutator type.", nameof(algorithmParameter));
+            if (evaluationsPerConfiguration <= 0 || evaluationsPerConfiguration < algorithmParameter.PopulationSize)
+                throw new ArgumentOutOfRangeException(nameof(evaluationsPerConfiguration),
+                    "The evaluation limit must be positive and at least the population size.");
             if (evaluationsPerConfiguration > RemainingEvaluations)
                 throw new InvalidOperationException(
                     $"Requested {evaluationsPerConfiguration} evaluations, " +
@@ -141,7 +220,6 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
             Console.WriteLine($"Running symbolic regression with the following parameters:{algorithmParameter}");
             // Prepare algorithm with this configuration
-            // TODO: Think about how many evaluations per configuration should be used, currently agent decides this let the agent decide this?
             var (alg, problem) = PrepareAlgorithm(FeynmanInstance!, algorithmParameter, evaluationsPerConfiguration);
             var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsPerConfiguration);
 
@@ -172,7 +250,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 QualityCurve = qualitySnapshots
             };
 
-            _currentEvaluations += result.EvaluationsUsed;
+            // Charge the full allocation so approximate metrics cannot permit extra runs.
+            _currentEvaluations += evaluationsPerConfiguration;
 
             // Compute if improvement to previous best
             double previousBest = Results.Count > 0 ? Results.Max(r => r.BestFitness) : -1;
@@ -188,6 +267,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 Improvement = improvement,
                 IsNewBest = isNewBest,
                 EvaluationsUsed = result.EvaluationsUsed,
+                RemainingEvaluations = RemainingEvaluations,
             };
             _experimentHistory.Add(experiment);
             return experiment;
@@ -212,7 +292,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         }
 
         [Description(
-            "Returns the current evaluation budget, including total, used, and remaining evaluations."
+            "Returns the total evaluation budget, allocations charged to completed runs as UsedEvaluations, " +
+            "and the remaining unallocated budget. Each completed run consumes its full configured allocation."
         )]
         public EvaluationBudget GetRemainingEvaluations()
         {

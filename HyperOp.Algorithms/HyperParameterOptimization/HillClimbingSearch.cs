@@ -32,8 +32,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 MutationRate = mutationRate ?? current.MutationRate,
                 MaxTreeDepth = maxTreeDepth ?? current.MaxTreeDepth,
                 MaxTreeLength = maxTreeLength ?? current.MaxTreeLength,
-                MutatorType = mutatorType ?? current.MutatorType,
-                Evaluations = current.Evaluations
+                MutatorType = mutatorType ?? current.MutatorType
             };
         }
 
@@ -53,8 +52,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 MutationRate = this.GetMiddleValue(searchSpace.MutationRates),
                 MaxTreeDepth = this.GetMiddleValue(searchSpace.MaxTreeDepths),
                 MaxTreeLength = this.GetMiddleValue(searchSpace.MaxTreeLengths),
-                MutatorType = searchSpace.MutatorTypes[0],
-                Evaluations = evaluations
+                MutatorType = searchSpace.MutatorTypes[0]
             };
         }
 

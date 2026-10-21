@@ -60,18 +60,18 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     MutationRate = mutRate,
                     MaxTreeDepth = maxDepth,
                     MaxTreeLength = maxLenght,
-                    MutatorType = mutatorType,
-                    Evaluations = evaluations
+                    MutatorType = mutatorType
                 }
             ).ToList();
         }
         
 
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int budget)
+        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
             var results = new List<ResultDTO>();
 
             // TODO: How to deal with num Configurations?
+            var budget = numConfigurations * evaluationsPerConfiguration;
             var configurations = GenerateGrid(budget);
             int configIndex = 0;
             // now try all

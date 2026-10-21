@@ -41,7 +41,7 @@ if (!File.Exists("./results/all_results.json")) { await ExecuteExperiments(); }
 async Task ExecuteExperiments()
 {
     List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = new List<HyperParameterOptimizationAlgorithm>() {
-        new AgentSearch(),
+        new AgentSearch(useOLlama: true),
         new GridSearch(),
         new HillClimbingSearch(),
         new IRaceSearch(),
