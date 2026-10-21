@@ -190,15 +190,14 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 // Think about cancelation token
             );
 
-            var responseTime = sw.Elapsed;
+            sw.Stop();
+            Console.WriteLine($"Agent run duration (including regression evaluations): {sw.Elapsed.TotalSeconds:F2} s");
             var exitReason = _agent.LastRunExitReason;
             Console.WriteLine($"Exit reason: {exitReason?.GetType().Name}: {exitReason?.Message}");
             if (Results.Count == 0)
                 throw new InvalidOperationException(
                     $"AgentSearch evaluated no configurations. Exit reason: {exitReason?.GetType().Name}: {exitReason?.Message}",
                     exitReason?.Exception);
-            sw.Restart();
-
             return Results;
         }
 
