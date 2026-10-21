@@ -101,25 +101,25 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
         return;
     }
 
-// Resolve which benchmark instances to run
-IEnumerable<KeyValuePair<string, FeynmanDescriptor>> selectedInstances;
-if (instanceFilters.Count == 0)
-{
-    selectedInstances = relevantBenchmarksets;
-}
-else
-{
-    selectedInstances = instanceFilters
-        .Select(filter =>
-        {
-            if (relevantBenchmarksets.TryGetValue(filter, out var descriptor))
-                return (found: true, key: filter, descriptor);
-            Console.WriteLine($"Unknown benchmark instance '{filter}'. Available: {string.Join(", ", relevantBenchmarksets.Keys)}");
-            return (found: false, key: filter, descriptor: (FeynmanDescriptor?)null);
-        })
-        .Where(x => x.found)
-        .Select(x => new KeyValuePair<string, FeynmanDescriptor>(x.key, x.descriptor!));
-}
+    // Resolve which benchmark instances to run
+    IEnumerable<KeyValuePair<string, FeynmanDescriptor>> selectedInstances;
+    if (instanceFilters.Count == 0)
+    {
+        selectedInstances = relevantBenchmarksets;
+    }
+    else
+    {
+        selectedInstances = instanceFilters
+            .Select(filter =>
+            {
+                if (relevantBenchmarksets.TryGetValue(filter, out var descriptor))
+                    return (found: true, key: filter, descriptor);
+                Console.WriteLine($"Unknown benchmark instance '{filter}'. Available: {string.Join(", ", relevantBenchmarksets.Keys)}");
+                return (found: false, key: filter, descriptor: (FeynmanDescriptor?)null);
+            })
+            .Where(x => x.found)
+            .Select(x => new KeyValuePair<string, FeynmanDescriptor>(x.key, x.descriptor!));
+    }
 
     var allResults = new List<AggregatedResultDTO>();
 
@@ -159,7 +159,8 @@ else
                             evaluationsPerConfiguration
                             );
 
-                        var allConfigsResult = new AggregatedResultDTO {
+                        var allConfigsResult = new AggregatedResultDTO
+                        {
                             AlgorithmName = algorithm.GetType().Name,
                             InstanceName = benchmarkKey,
                             Repetition = repetition,
@@ -257,15 +258,15 @@ void PrintUsage()
     Console.WriteLine("  HyperOp.Experiments [--algorithm <name>] [--instance <key>[,<key>...]] [--output <dir>] [--run-id <id>]");
     Console.WriteLine();
     Console.WriteLine("Options:");
-Console.WriteLine($"  --algorithm   HPO algorithm to run, or 'all' (default: {defaultAlgorithm}). One of:");
-Console.WriteLine($"                  {string.Join(", ", GetAvailableAlgorithmNames())}");
-Console.WriteLine($"  --instance    One or more benchmark keys, comma-separated (default: {defaultInstance}). Available:");
-Console.WriteLine($"                  {string.Join(", ", relevantBenchmarksets.Keys)}");
-Console.WriteLine("  --output      Output root directory (default: ./results)");
-Console.WriteLine("  --run-id      Unique subdirectory name for this run (default: timestamp + process id)");
-Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
-Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget (default: 100 configs / 1000 evals)");
-Console.WriteLine("  --budget-sweep Run the full five budget variations instead of the default single budget");
+    Console.WriteLine($"  --algorithm   HPO algorithm to run, or 'all' (default: {defaultAlgorithm}). One of:");
+    Console.WriteLine($"                  {string.Join(", ", GetAvailableAlgorithmNames())}");
+    Console.WriteLine($"  --instance    One or more benchmark keys, comma-separated (default: {defaultInstance}). Available:");
+    Console.WriteLine($"                  {string.Join(", ", relevantBenchmarksets.Keys)}");
+    Console.WriteLine("  --output      Output root directory (default: ./results)");
+    Console.WriteLine("  --run-id      Unique subdirectory name for this run (default: timestamp + process id)");
+    Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
+    Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget (default: 100 configs / 1000 evals)");
+    Console.WriteLine("  --budget-sweep Run the full five budget variations instead of the default single budget");
     Console.WriteLine("  --help        Show this message");
     Console.WriteLine();
     Console.WriteLine("Examples:");
