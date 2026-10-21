@@ -7,22 +7,23 @@ using HyperOp.Algorithms.HyperParameterOptimization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-Dictionary<string, FeynmanDescriptor> relevantBenchmarksets = new Dictionary<string, FeynmanDescriptor>()
+const int instanceSeed = 42;
+Dictionary<string, FeynmanDescriptor> relevantBenchmarksets = new Dictionary<string, FeynmanDescriptor>(StringComparer.OrdinalIgnoreCase)
 {
-        { "I.6.20", new Feynman1() },
-        { "I.9.18", new Feynman5() },
-        { "I.15.3.x", new Feynman17() },
-        { "I.30.5", new Feynman31() },
-        { "I.32.17", new Feynman33() },
-        { "I.41.16", new Feynman44() },
-    //TODO Habs & HFo: Double-Check, we have I.48.2 instead of I.48.20, but the formula is the same    
-        { "I.48.20",   new Feynman50() },
-        { "II.6.15a", new Feynman56() },
-        { "II.11.27", new Feynman64() },
-        { "II.11.28", new Feynman65() },
-        { "II.35.21", new Feynman81() },
-        { "III.9.52", new Feynman90() },
-        { "III.10.19", new Feynman91() }
+        { "I.6.20",    new Feynman1(instanceSeed) },
+        { "I.9.18",    new Feynman5(instanceSeed) },
+        { "I.15.3.x",  new Feynman17(instanceSeed) },
+        { "I.30.5",    new Feynman31(instanceSeed) },
+        { "I.32.17",   new Feynman33(instanceSeed) },
+        { "I.41.16",   new Feynman44(instanceSeed) },
+    //TODO Habs & HFo: Double-Check, we have I.48.2 instead of I.48.20, but the formula is the same
+        { "I.48.20",   new Feynman50(instanceSeed) },
+        { "II.6.15a",  new Feynman56(instanceSeed) },
+        { "II.11.27",  new Feynman64(instanceSeed) },
+        { "II.11.28",  new Feynman65(instanceSeed) },
+        { "II.35.21",  new Feynman81(instanceSeed) },
+        { "III.9.52",  new Feynman90(instanceSeed) },
+        { "III.10.19", new Feynman91(instanceSeed) }
 };
 
 // Defaults for F5 / launching without arguments. Command-line options override these.
@@ -60,7 +61,10 @@ if (parsedArgs.ContainsKey("configurations") || parsedArgs.ContainsKey("evaluati
 }
 
 var algorithmFilter = parsedArgs.TryGetValue("algorithm", out var algValue) ? algValue : defaultAlgorithm;
-var instanceFilter = parsedArgs.TryGetValue("instance", out var instValue) ? instValue : defaultInstance;
+// Accept one or more comma-separated instance keys; fall back to the single default
+var instanceFilters = parsedArgs.TryGetValue("instance", out var instValue)
+    ? instValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+    : new List<string> { defaultInstance };
 var outputRoot = parsedArgs.TryGetValue("output", out var outputValue) ? outputValue : "./results";
 var runId = parsedArgs.TryGetValue("run-id", out var runIdValue)
     ? SanitizePathSegment(runIdValue)
@@ -70,9 +74,9 @@ var runOutputDirectory = Path.Combine(outputRoot, runId);
 
 if (!Directory.Exists(runOutputDirectory)) { Directory.CreateDirectory(runOutputDirectory); }
 
-await ExecuteExperiments(runOutputDirectory, algorithmFilter, instanceFilter);
+await ExecuteExperiments(runOutputDirectory, algorithmFilter, instanceFilters);
 
-async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilter, string? instanceNameFilter)
+async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilter, List<string> instanceNameFilters)
 {
     List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = new() {
         new IRaceSearch(),
@@ -97,75 +101,89 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
         return;
     }
 
-    int instanceSeed = 42;
-    if (string.IsNullOrWhiteSpace(instanceNameFilter))
-        throw new ArgumentException("Select a benchmark using --instance (for example I.6.20 or Feynman1).");
-    var benchmarkName = relevantBenchmarksets.TryGetValue(instanceNameFilter, out var benchmark)
-        ? benchmark.Name : instanceNameFilter;
-    var feynmanDescriptor = FeynmanInstanceProvider.LoadAvailableInstances(instanceSeed)
-        .FirstOrDefault(v => MatchesInstanceName(v, benchmarkName))
-        ?? throw new ArgumentException($"No instance matched '{instanceNameFilter}'.");
+// Resolve which benchmark instances to run
+IEnumerable<KeyValuePair<string, FeynmanDescriptor>> selectedInstances;
+if (instanceFilters.Count == 0)
+{
+    selectedInstances = relevantBenchmarksets;
+}
+else
+{
+    selectedInstances = instanceFilters
+        .Select(filter =>
+        {
+            if (relevantBenchmarksets.TryGetValue(filter, out var descriptor))
+                return (found: true, key: filter, descriptor);
+            Console.WriteLine($"Unknown benchmark instance '{filter}'. Available: {string.Join(", ", relevantBenchmarksets.Keys)}");
+            return (found: false, key: filter, descriptor: (FeynmanDescriptor?)null);
+        })
+        .Where(x => x.found)
+        .Select(x => new KeyValuePair<string, FeynmanDescriptor>(x.key, x.descriptor!));
+}
 
     var allResults = new List<AggregatedResultDTO>();
 
     foreach (var algorithm in hyperOpAlgs)
     {
-        foreach (int repetition in Enumerable.Range(1, repetitions))
+        foreach (var (benchmarkKey, feynmanDescriptor) in selectedInstances)
         {
-            foreach (var entry in budgetVariations)
+            foreach (int repetition in Enumerable.Range(1, repetitions))
             {
-                int numConfigurations = entry.Item1;
-                int evaluationsPerConfiguration = entry.Item2;
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {feynmanDescriptor.Name} " +
-                    $"(Repetition {repetition}/{repetitions}, Configurations: {numConfigurations}, Evaluations per Configuration: {evaluationsPerConfiguration})");
-
-                try
+                foreach (var entry in budgetVariations)
                 {
-                    string instanceSegment = SanitizePathSegment(feynmanDescriptor.Name);
-                    //TODO: Add instance name
-                    string fileName = $"{algorithm.GetType().Name}_{instanceSegment}_rep{repetition}_{numConfigurations}cfg_{evaluationsPerConfiguration}eval.json";
-                    string resultFilePath = Path.Combine(outputDirectory, fileName);
+                    int numConfigurations = entry.Item1;
+                    int evaluationsPerConfiguration = entry.Item2;
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {benchmarkKey} " +
+                        $"(Repetition {repetition}/{repetitions}, Configurations: {numConfigurations}, Evaluations per Configuration: {evaluationsPerConfiguration})");
 
-                    if (File.Exists(resultFilePath))
+                    try
                     {
-                        Console.WriteLine("  → Result already exists. Loading from cache.");
-                        allResults.Add(LoadResult(resultFilePath));
-                        continue;
+                        // Use the benchmark key (e.g. "I.6.20") for the filename, sanitized to replace dots/slashes
+                        string instanceSegment = SanitizePathSegment(benchmarkKey);
+                        string fileName = $"{algorithm.GetType().Name}_{instanceSegment}_rep{repetition}_{numConfigurations}cfg_{evaluationsPerConfiguration}eval.json";
+                        string resultFilePath = Path.Combine(outputDirectory, fileName);
+
+                        if (File.Exists(resultFilePath))
+                        {
+                            Console.WriteLine("  → Result already exists. Loading from cache.");
+                            allResults.Add(LoadResult(resultFilePath));
+                            continue;
+                        }
+
+                        int hpoSeed = 42 + (100 * repetition);
+
+                        List<ResultDTO> algRes = await algorithm.Execute(
+                            feynmanDescriptor,
+                            hpoSeed,
+                            numConfigurations,
+                            evaluationsPerConfiguration
+                            );
+
+                        var allConfigsResult = new AggregatedResultDTO {
+                            AlgorithmName = algorithm.GetType().Name,
+                            InstanceName = benchmarkKey,
+                            Repetition = repetition,
+                            Seed = hpoSeed,
+                            NumConfigurations = numConfigurations,
+                            EvaluationsPerConfiguration = evaluationsPerConfiguration,
+                            TotalConfigurationsEvaluated = algRes.Count,
+                            ConfigurationResults = algRes
+                        };
+
+                        allResults.Add(allConfigsResult);
+                        SaveResult(resultFilePath, allConfigsResult);
+
+                        var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
+                        Console.WriteLine($"Evaluated {algRes.Count} configurations. Best fitness: {bestConfig.BestFitness:F4}");
                     }
-
-                    int hpoSeed = 42 + (100 * repetition);
-
-                    List<ResultDTO> algRes = await algorithm.Execute(
-                        feynmanDescriptor,
-                        hpoSeed,
-                        numConfigurations,
-                        evaluationsPerConfiguration
-                        );
-
-                    var allConfigsResult = new AggregatedResultDTO {
-                        AlgorithmName = algorithm.GetType().Name,
-                        InstanceName = feynmanDescriptor.Name,
-                        Repetition = repetition,
-                        Seed = hpoSeed,
-                        NumConfigurations = numConfigurations,
-                        EvaluationsPerConfiguration = evaluationsPerConfiguration,
-                        TotalConfigurationsEvaluated = algRes.Count,
-                        ConfigurationResults = algRes
-                    };
-
-                    allResults.Add(allConfigsResult);
-                    SaveResult(resultFilePath, allConfigsResult);
-
-                    var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
-                    Console.WriteLine($"Evaluated {algRes.Count} configurations. Best fitness: {bestConfig.BestFitness:F4}");
-                }
-                catch (NotImplementedException)
-                {
-                    Console.WriteLine("Not implemented yet.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error: {ex.Message}");
+                    catch (NotImplementedException)
+                    {
+                        Console.WriteLine("Not implemented yet.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error: {ex.Message}");
+                    }
                 }
             }
         }
@@ -236,17 +254,24 @@ string SanitizePathSegment(string raw)
 void PrintUsage()
 {
     Console.WriteLine("Usage:");
-    Console.WriteLine("  HyperOp.Experiments --algorithm <name> --instance <name> [--output <dir>] [--run-id <id>]");
+    Console.WriteLine("  HyperOp.Experiments [--algorithm <name>] [--instance <key>[,<key>...]] [--output <dir>] [--run-id <id>]");
     Console.WriteLine();
     Console.WriteLine("Options:");
-    Console.WriteLine($"  --algorithm   Algorithm name or all (default: {defaultAlgorithm})");
-    Console.WriteLine($"  --instance    Benchmark alias, descriptor Name or class name (default: {defaultInstance})");
-    Console.WriteLine("  --output      Output root directory (default: ./results)");
-    Console.WriteLine("  --run-id      Unique run id used as subdirectory name (default: timestamp + process id)");
-    Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget of 100 trials / 1000 evaluations");
-    Console.WriteLine("  --budget-sweep Run the original five budget variations");
-    Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
+Console.WriteLine($"  --algorithm   HPO algorithm to run, or 'all' (default: {defaultAlgorithm}). One of:");
+Console.WriteLine($"                  {string.Join(", ", GetAvailableAlgorithmNames())}");
+Console.WriteLine($"  --instance    One or more benchmark keys, comma-separated (default: {defaultInstance}). Available:");
+Console.WriteLine($"                  {string.Join(", ", relevantBenchmarksets.Keys)}");
+Console.WriteLine("  --output      Output root directory (default: ./results)");
+Console.WriteLine("  --run-id      Unique subdirectory name for this run (default: timestamp + process id)");
+Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
+Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget (default: 100 configs / 1000 evals)");
+Console.WriteLine("  --budget-sweep Run the full five budget variations instead of the default single budget");
     Console.WriteLine("  --help        Show this message");
+    Console.WriteLine();
+    Console.WriteLine("Examples:");
+    Console.WriteLine("  HyperOp.Experiments --algorithm RandomSearch --instance I.6.20");
+    Console.WriteLine("  HyperOp.Experiments --algorithm RandomSearch --instance I.6.20,I.9.18,II.11.27");
+    Console.WriteLine("  HyperOp.Experiments --instance I.6.20 --run-id job42 --output /data/results");
 }
 
 void SaveResult(string filePath, AggregatedResultDTO dto)
