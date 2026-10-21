@@ -9,9 +9,12 @@
 
   <ItemGroup>
     <None Remove="Resources\systemPrompt.md" />
+    <None Include="..\docker\irace.Dockerfile" Link="docker\irace.Dockerfile"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\irace.R" />
     <EmbeddedResource Include="Resources\systemPrompt.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </EmbeddedResource>

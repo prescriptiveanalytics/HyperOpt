@@ -25,7 +25,11 @@ Dictionary<string, FeynmanDescriptor> relevantBenchmarksets = new Dictionary<str
         { "III.10.19", new Feynman91() }
 };
 
-const int repetitions = 3;
+// Defaults for F5 / launching without arguments. Command-line options override these.
+const string defaultAlgorithm = nameof(IRaceSearch);
+const string defaultInstance = "I.6.20";
+int repetitions = 1;
+List<(int, int)> defaultBudget = [(100, 1_000)];
 List<(int, int)> budgetVariations = new List<(int, int)>()
 {
     (10, 1_000_000),
@@ -42,8 +46,21 @@ if (parsedArgs.TryGetValue("help", out _) || parsedArgs.TryGetValue("h", out _))
     return;
 }
 
-var algorithmFilter = parsedArgs.TryGetValue("algorithm", out var algValue) ? algValue : null;
-var instanceFilter = parsedArgs.TryGetValue("instance", out var instValue) ? instValue : null;
+if (!parsedArgs.ContainsKey("budget-sweep"))
+    budgetVariations = defaultBudget;
+
+if (parsedArgs.TryGetValue("repetitions", out var repetitionsValue))
+    repetitions = ParsePositiveInt("repetitions", repetitionsValue);
+if (parsedArgs.ContainsKey("configurations") || parsedArgs.ContainsKey("evaluations"))
+{
+    if (!parsedArgs.TryGetValue("configurations", out var configurationsValue) ||
+        !parsedArgs.TryGetValue("evaluations", out var evaluationsValue))
+        throw new ArgumentException("Specify both --configurations and --evaluations to override the budget sweep.");
+    budgetVariations = [(ParsePositiveInt("configurations", configurationsValue), ParsePositiveInt("evaluations", evaluationsValue))];
+}
+
+var algorithmFilter = parsedArgs.TryGetValue("algorithm", out var algValue) ? algValue : defaultAlgorithm;
+var instanceFilter = parsedArgs.TryGetValue("instance", out var instValue) ? instValue : defaultInstance;
 var outputRoot = parsedArgs.TryGetValue("output", out var outputValue) ? outputValue : "./results";
 var runId = parsedArgs.TryGetValue("run-id", out var runIdValue)
     ? SanitizePathSegment(runIdValue)
@@ -57,31 +74,37 @@ await ExecuteExperiments(runOutputDirectory, algorithmFilter, instanceFilter);
 
 async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilter, string? instanceNameFilter)
 {
-    List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = new List<HyperParameterOptimizationAlgorithm>() {
+    List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = new() {
+        new IRaceSearch(),
         new AgentSearch(useOLlama: true),
         new GridSearch(),
         new HillClimbingSearch(),
-        new IRaceSearch(),
         new RandomSearch()
     };
 
-    if (!string.IsNullOrWhiteSpace(algorithmNameFilter))
+    if (!string.IsNullOrWhiteSpace(algorithmNameFilter) &&
+        !string.Equals(algorithmNameFilter, "all", StringComparison.OrdinalIgnoreCase))
     {
         hyperOpAlgs = hyperOpAlgs
-            .Where(a => MatchesAlgorithmName(a, algorithmNameFilter))
+            .Where(algorithm => NormalizeKey(algorithm.GetType().Name) == NormalizeKey(algorithmNameFilter))
             .ToList();
+    }
 
-        if (hyperOpAlgs.Count == 0)
-        {
-            Console.WriteLine($"No algorithm matched '{algorithmNameFilter}'.");
-            Console.WriteLine($"Available: {string.Join(", ", GetAvailableAlgorithmNames())}");
-            return;
-        }
+    if (hyperOpAlgs.Count == 0)
+    {
+        Console.WriteLine($"No algorithm matched '{algorithmNameFilter}'.");
+        Console.WriteLine($"Available: {string.Join(", ", GetAvailableAlgorithmNames())}");
+        return;
     }
 
     int instanceSeed = 42;
-    //TODO: Think about whether we want to allow ALL instances to be run in one go, or if we want to restrict to one instance per run.
-    var feynmanDescriptor = FeynmanInstanceProvider.LoadAvailableInstances(instanceSeed).FirstOrDefault(v => string.Equals(relevantBenchmarksets[instanceNameFilter], v.Name));
+    if (string.IsNullOrWhiteSpace(instanceNameFilter))
+        throw new ArgumentException("Select a benchmark using --instance (for example I.6.20 or Feynman1).");
+    var benchmarkName = relevantBenchmarksets.TryGetValue(instanceNameFilter, out var benchmark)
+        ? benchmark.Name : instanceNameFilter;
+    var feynmanDescriptor = FeynmanInstanceProvider.LoadAvailableInstances(instanceSeed)
+        .FirstOrDefault(v => MatchesInstanceName(v, benchmarkName))
+        ?? throw new ArgumentException($"No instance matched '{instanceNameFilter}'.");
 
     var allResults = new List<AggregatedResultDTO>();
 
@@ -177,10 +200,11 @@ Dictionary<string, string> ParseArgs(string[] cmdArgs)
     return result;
 }
 
-bool MatchesAlgorithmName(HyperParameterOptimizationAlgorithm algorithm, string filter)
+int ParsePositiveInt(string name, string value)
 {
-    var algorithmName = algorithm.GetType().Name;
-    return NormalizeKey(algorithmName) == NormalizeKey(filter);
+    if (!int.TryParse(value, out var number) || number <= 0)
+        throw new ArgumentException($"--{name} must be a positive integer.");
+    return number;
 }
 
 bool MatchesInstanceName(FeynmanDescriptor descriptor, string filter)
@@ -215,10 +239,13 @@ void PrintUsage()
     Console.WriteLine("  HyperOp.Experiments --algorithm <name> --instance <name> [--output <dir>] [--run-id <id>]");
     Console.WriteLine();
     Console.WriteLine("Options:");
-    Console.WriteLine("  --algorithm   Algorithm name (AgentSearch, GridSearch, HillClimbingSearch, IRaceSearch, RandomSearch)");
-    Console.WriteLine("  --instance    Benchmark instance name (matches Feynman descriptor Name or class name)");
+    Console.WriteLine($"  --algorithm   Algorithm name or all (default: {defaultAlgorithm})");
+    Console.WriteLine($"  --instance    Benchmark alias, descriptor Name or class name (default: {defaultInstance})");
     Console.WriteLine("  --output      Output root directory (default: ./results)");
     Console.WriteLine("  --run-id      Unique run id used as subdirectory name (default: timestamp + process id)");
+    Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget of 100 trials / 1000 evaluations");
+    Console.WriteLine("  --budget-sweep Run the original five budget variations");
+    Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
     Console.WriteLine("  --help        Show this message");
 }
 
