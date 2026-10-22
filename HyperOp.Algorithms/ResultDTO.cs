@@ -12,6 +12,21 @@ namespace HyperOp.Algorithms
 
         public required double BestFitness { get; set; }
 
+        // BestFitness is validation Pearson R²; population statistics remain training metrics.
+        public string FitnessMetric { get; set; } = "training_pearson_r2";
+        public double? TrainingBestFitness { get; set; }
+        public double? TestFitness { get; set; }
+        public string? SelectedExpression { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        internal HEAL.HeuristicLib.Encodings.SymbolicExpressions.ExpressionTree? SelectedModel { get; set; }
+
+        public void EvaluateTest(Benchmarks.PreparedRegressionData data)
+        {
+            if (SelectedModel is null) throw new InvalidOperationException("No selected GP expression is available.");
+            TestFitness = data.TestFitness(SelectedModel);
+        }
+
         public required double MeanPopulationFitness { get; set; }
 
         public required double WorstPopulationFitness { get; set; }

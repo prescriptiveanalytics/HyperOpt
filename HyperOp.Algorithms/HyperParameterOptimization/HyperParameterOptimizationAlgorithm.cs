@@ -23,15 +23,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             AlgorithmParameter parameter,
             int evaluationsLimit)
         {
-            var data = feynmanInstance.GenerateValues();
-            var inputVariables = data.Take(data.Count - 1).ToList();
-            var targetData = data.Last();
-
-            var regressionData = new RegressionData(
-                DataFrame.FromMatrix(
-                    feynmanInstance.AllowedInputVariables,
-                    ConvertInputData(inputVariables)),
-                new Series<double>(feynmanInstance.TargetVariable, targetData));
+            var regressionData = feynmanInstance.PreparedData.Training;
 
             var searchSpace = new ExpressionTreeSearchSpace(
                 maximumLength: parameter.MaxTreeLength,
@@ -75,19 +67,17 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             };
         }
 
-        private double[,] ConvertInputData(List<List<double>> inputDataLists)
+        protected static void CompleteResult(RegressionDescriptor descriptor, ResultDTO result,
+            PopulationState<ExpressionTree> finalState)
         {
-            int rowCount = inputDataLists[0].Count;
-            int colCount = inputDataLists.Count;
-            var inputMatrix = new double[rowCount, colCount];
-            for (int col = 0; col < colCount; col++)
-            {
-                for (int row = 0; row < rowCount; row++)
-                {
-                    inputMatrix[row, col] = inputDataLists[col][row];
-                }
-            }
-            return inputMatrix;
+            var best = finalState.Population.Where(individual => double.IsFinite(individual.ObjectiveVector[0]))
+                .OrderByDescending(individual => individual.ObjectiveVector[0]).FirstOrDefault()
+                ?? throw new InvalidOperationException("GP produced no finite training objective.");
+            result.TrainingBestFitness = best.ObjectiveVector[0];
+            result.SelectedModel = best.Candidate;
+            result.SelectedExpression = best.Candidate.ToInfixString();
+            result.BestFitness = descriptor.PreparedData.ValidationFitness(best.Candidate);
+            result.FitnessMetric = "validation_pearson_r2";
         }
     }
 }

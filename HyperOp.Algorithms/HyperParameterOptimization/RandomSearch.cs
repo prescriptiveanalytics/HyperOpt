@@ -76,6 +76,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     QualityCurve = qualitySnapshots
                 };
 
+                CompleteResult(feynmanInstance, result, finalState);
                 results.Add(result);
             }
 

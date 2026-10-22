@@ -107,6 +107,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     BestIndividualsSnapshot = snapshots,
                     QualityCurve = qualitySnapshots
                 };
+                CompleteResult(feynmanInstance, result, finalState);
                 results.Add(result);
                 configIndex++;
             }

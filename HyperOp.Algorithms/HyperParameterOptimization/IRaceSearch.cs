@@ -167,7 +167,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             var finalState = await run.CompleteAsync();
             stopwatch.Stop();
             var (generations, best, mean, worst, snapshots, curve) = this.EvaluateFinalState(finalState, run.GetResult(analyzer));
-            return new ResultDTO {
+            var result = new ResultDTO {
                 Configuration = parameter, ConfigurationIndex = configurationId,
                 BestFitness = best, MeanPopulationFitness = mean, WorstPopulationFitness = worst,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
@@ -175,6 +175,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 EvaluationsLimit = evaluationsLimit, GenerationsCompleted = generations,
                 PopulationSize = parameter.PopulationSize, BestIndividualsSnapshot = snapshots, QualityCurve = curve
             };
+            CompleteResult(instance, result, finalState);
+            return result;
         }
 
         private static string CreateParameterDefinitions()

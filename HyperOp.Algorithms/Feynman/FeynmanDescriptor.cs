@@ -36,5 +36,16 @@
 
         public abstract override List<List<double>> GenerateValues();
 
+        protected override Benchmarks.PreparedRegressionData PrepareData()
+        {
+            var columns = GenerateValues();
+            int validationCount = (TrainingPartitionEnd - TrainingPartitionStart) / 5;
+            int fittingEnd = TrainingPartitionEnd - validationCount;
+            return Benchmarks.PreparedRegressionData.Create(this, columns,
+                Enumerable.Range(TrainingPartitionStart, fittingEnd - TrainingPartitionStart),
+                Enumerable.Range(fittingEnd, validationCount),
+                Enumerable.Range(TestPartitionStart, TestPartitionEnd - TestPartitionStart));
+        }
+
     }
 }

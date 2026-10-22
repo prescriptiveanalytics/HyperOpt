@@ -275,6 +275,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 QualityCurve = qualitySnapshots
             };
 
+            CompleteResult(FeynmanInstance, result, finalState);
+
             // Charge the full allocation so approximate metrics cannot permit extra runs.
             _currentEvaluations += evaluationsPerConfiguration;
 
@@ -288,7 +290,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             // Agent would benefit from a return type that is a bit simpler
             Console.WriteLine($"Remaining Evaluations: {RemainingEvaluations}");
             var experiment = new Experiment { HyperParameters = algorithmParameter, 
-                BestFitness = bestFitness,
+                BestFitness = result.BestFitness,
                 Improvement = improvement,
                 IsNewBest = isNewBest,
                 EvaluationsUsed = result.EvaluationsUsed,

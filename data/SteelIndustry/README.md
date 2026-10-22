@@ -13,8 +13,15 @@ Downloaded from UCI's ZIP on 22 October 2026. CSV SHA-256:
 `Usage_kWh`; the nine other predictors are used, with `date` omitted. WeekStatus
 is Weekend=0, Weekday=1; weekdays are Monday=0 through Sunday=6; Load_Type is
 Light_Load=0, Medium_Load=1, Maximum_Load=2. Punctuation in two GP variable names
-is replaced by underscores. No lags, scaling, resampling or new scoring logic
-are introduced. The existing HPO evaluation behavior is unchanged.
+is replaced by underscores. No lags, scaling or resampling are introduced.
+
+The common preparation step freezes the observations once per descriptor and
+uses chronological 60/20/20 partitions: 21,024 training, 7,008 validation and
+7,008 test rows. GP fits on training data. HPO receives validation squared Pearson
+correlation; only its selected expression is assessed on test data after tuning.
+Results distinguish training, validation and final test scores and record the
+partition sizes. These are correlation scores, not error-based coefficients of
+determination. Changing a repetition seed does not change the data or partitions.
 
 The raw predictors include contemporaneous electrical measurements and CO2;
 their suitability for the final paper (particularly CO2 as a target proxy)

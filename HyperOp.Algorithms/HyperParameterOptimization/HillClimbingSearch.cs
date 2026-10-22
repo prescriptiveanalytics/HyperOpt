@@ -238,6 +238,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 BestIndividualsSnapshot = snapshots,
                 QualityCurve = qualitySnapshots
             };
+            CompleteResult(feynmanInstance, result, finalState);
             var currentBestResult = result;
 
             results.Add(result);
@@ -288,6 +289,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                         BestIndividualsSnapshot = snapshotsNeighbor,
                         QualityCurve = qualitySnapshotsNeighbor
                     };
+                    CompleteResult(feynmanInstance, resultNeighbor, finalStateNeighbor);
                     neighborResults.Add(resultNeighbor);
                     evaluatedConfigurations.Add(neighbor);
                     configIndex++;

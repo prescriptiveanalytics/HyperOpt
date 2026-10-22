@@ -7,6 +7,7 @@ using HyperOp.Algorithms.HyperParameterOptimization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+var parsedArgs = ParseArgs(args);
 const int instanceSeed = 42;
 Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<string, RegressionDescriptor>(StringComparer.OrdinalIgnoreCase)
 {
@@ -41,7 +42,6 @@ List<(int, int)> budgetVariations = new List<(int, int)>()
     (100000, 100),
 };
 
-var parsedArgs = ParseArgs(args);
 if (parsedArgs.TryGetValue("help", out _) || parsedArgs.TryGetValue("h", out _))
 {
     PrintUsage();
@@ -123,10 +123,13 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
     }
 
     var allResults = new List<AggregatedResultDTO>();
+    // Freeze selected instances before any HPO call, then share them across all repetitions.
+    var frozenInstances = selectedInstances.Select(entry =>
+        (entry.Key, Descriptor: entry.Value, Data: entry.Value.PreparedData)).ToList();
 
     foreach (var algorithm in hyperOpAlgs)
     {
-        foreach (var (benchmarkKey, feynmanDescriptor) in selectedInstances)
+        foreach (var (benchmarkKey, regressionDescriptor, preparedData) in frozenInstances)
         {
             foreach (int repetition in Enumerable.Range(1, repetitions))
             {
@@ -147,19 +150,27 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                         if (File.Exists(resultFilePath))
                         {
                             Console.WriteLine("  → Result already exists. Loading from cache.");
-                            allResults.Add(LoadResult(resultFilePath));
+                            var cached = LoadResult(resultFilePath);
+                            if (cached.TrainingRows != preparedData.TrainingRows.Count ||
+                                cached.ValidationRows != preparedData.ValidationRows.Count ||
+                                cached.TestRows != preparedData.TestRows.Count ||
+                                cached.ConfigurationResults.Any(result => result.FitnessMetric != "validation_pearson_r2"))
+                                throw new InvalidDataException("Cached result does not use the current partitions and validation scoring.");
+                            allResults.Add(cached);
                             continue;
                         }
 
                         int hpoSeed = 42 + (100 * repetition);
 
                         List<ResultDTO> algRes = await algorithm.Execute(
-                            feynmanDescriptor,
+                            regressionDescriptor,
                             hpoSeed,
                             numConfigurations,
                             evaluationsPerConfiguration
                             );
 
+                        var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
+                        bestConfig.EvaluateTest(preparedData);
                         var allConfigsResult = new AggregatedResultDTO
                         {
                             AlgorithmName = algorithm.GetType().Name,
@@ -169,14 +180,18 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                             NumConfigurations = numConfigurations,
                             EvaluationsPerConfiguration = evaluationsPerConfiguration,
                             TotalConfigurationsEvaluated = algRes.Count,
-                            ConfigurationResults = algRes
+                            ConfigurationResults = algRes,
+                            TrainingRows = preparedData.TrainingRows.Count,
+                            ValidationRows = preparedData.ValidationRows.Count,
+                            TestRows = preparedData.TestRows.Count,
+                            SelectedTrialIndex = algRes.IndexOf(bestConfig)
                         };
 
                         allResults.Add(allConfigsResult);
                         SaveResult(resultFilePath, allConfigsResult);
 
-                        var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
-                        Console.WriteLine($"Evaluated {algRes.Count} configurations. Best fitness: {bestConfig.BestFitness:F4}");
+                        Console.WriteLine($"Evaluated {algRes.Count} configurations. Best validation Pearson R²: {bestConfig.BestFitness:F4}; " +
+                            $"selected expression test Pearson R²: {bestConfig.TestFitness:F4}");
                     }
                     catch (NotImplementedException)
                     {
