@@ -1,19 +1,19 @@
 ﻿namespace HyperOp.Algorithms.Feynman
 {
-    public abstract class FeynmanDescriptor
+    public abstract class FeynmanDescriptor : Benchmarks.RegressionDescriptor
     {
         public double? noiseRatio;
-        public abstract string Name { get; }
-        public string Description
+        public abstract override string Name { get; }
+        public override string Description
         {
             get
             {
                 return "Feynman instances ... descriptions follows: " + Environment.NewLine;
             }
         }
-        public abstract string TargetVariable { get; }
-        public abstract string[] VariableNames { get; }
-        public abstract string[] AllowedInputVariables { get; }
+        public abstract override string TargetVariable { get; }
+        public abstract override string[] VariableNames { get; }
+        public abstract override string[] AllowedInputVariables { get; }
         public abstract int TrainingPartitionStart { get; }
         public abstract int TrainingPartitionEnd { get; }
         public abstract int TestPartitionStart { get; }
@@ -34,7 +34,7 @@
         //public int TestPartitionStart { get { return 100; } }
         //public int TestPartitionEnd { get { return 200; } }
 
-        public abstract List<List<double>> GenerateValues();
+        public abstract override List<List<double>> GenerateValues();
 
     }
 }

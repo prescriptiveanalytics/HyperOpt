@@ -1,7 +1,7 @@
 using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Feynman;
+using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents.Util;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
@@ -61,7 +61,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         public List<Experiment> _experimentHistory = new List<Experiment>();
 
         // Hold feynman instance seperately and make available for changes
-        public FeynmanDescriptor? FeynmanInstance { get; set; }
+        public RegressionDescriptor? FeynmanInstance { get; set; }
         public int Seed { get; set; }
         public List<ResultDTO> Results { get; set; } = new List<ResultDTO>();
 
@@ -151,7 +151,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             return openRouterAPIKey;
         }
 
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
+        public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
             ArgumentNullException.ThrowIfNull(feynmanInstance);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(numConfigurations);

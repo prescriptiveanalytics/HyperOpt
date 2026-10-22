@@ -2,7 +2,7 @@
 using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Feynman;
+using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System;
 using System.Collections.Generic;
@@ -193,7 +193,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 a.MutatorType == b.MutatorType;
         }
 
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
+        public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
             var results = new List<ResultDTO>();
 

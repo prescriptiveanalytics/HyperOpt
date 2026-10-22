@@ -1,14 +1,14 @@
 using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HyperOp.Algorithms;
-using HyperOp.Algorithms.Feynman;
+using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.Feynman.Instances;
 using HyperOp.Algorithms.HyperParameterOptimization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 const int instanceSeed = 42;
-Dictionary<string, FeynmanDescriptor> relevantBenchmarksets = new Dictionary<string, FeynmanDescriptor>(StringComparer.OrdinalIgnoreCase)
+Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<string, RegressionDescriptor>(StringComparer.OrdinalIgnoreCase)
 {
         { "I.6.20",    new Feynman1(instanceSeed) },
         { "I.9.18",    new Feynman5(instanceSeed) },
@@ -23,7 +23,8 @@ Dictionary<string, FeynmanDescriptor> relevantBenchmarksets = new Dictionary<str
         { "II.11.28",  new Feynman65(instanceSeed) },
         { "II.35.21",  new Feynman81(instanceSeed) },
         { "III.9.52",  new Feynman90(instanceSeed) },
-        { "III.10.19", new Feynman91(instanceSeed) }
+        { "III.10.19", new Feynman91(instanceSeed) },
+        { "SteelIndustry", new SteelIndustryDescriptor() }
 };
 
 // Defaults for F5 / launching without arguments. Command-line options override these.
@@ -102,7 +103,7 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
     }
 
     // Resolve which benchmark instances to run
-    IEnumerable<KeyValuePair<string, FeynmanDescriptor>> selectedInstances;
+    IEnumerable<KeyValuePair<string, RegressionDescriptor>> selectedInstances;
     if (instanceFilters.Count == 0)
     {
         selectedInstances = relevantBenchmarksets;
@@ -115,10 +116,10 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                 if (relevantBenchmarksets.TryGetValue(filter, out var descriptor))
                     return (found: true, key: filter, descriptor);
                 Console.WriteLine($"Unknown benchmark instance '{filter}'. Available: {string.Join(", ", relevantBenchmarksets.Keys)}");
-                return (found: false, key: filter, descriptor: (FeynmanDescriptor?)null);
+                return (found: false, key: filter, descriptor: (RegressionDescriptor?)null);
             })
             .Where(x => x.found)
-            .Select(x => new KeyValuePair<string, FeynmanDescriptor>(x.key, x.descriptor!));
+            .Select(x => new KeyValuePair<string, RegressionDescriptor>(x.key, x.descriptor!));
     }
 
     var allResults = new List<AggregatedResultDTO>();
@@ -226,7 +227,7 @@ int ParsePositiveInt(string name, string value)
     return number;
 }
 
-bool MatchesInstanceName(FeynmanDescriptor descriptor, string filter)
+bool MatchesInstanceName(RegressionDescriptor descriptor, string filter)
 {
     return NormalizeKey(descriptor.Name) == NormalizeKey(filter) ||
            NormalizeKey(descriptor.GetType().Name) == NormalizeKey(filter);

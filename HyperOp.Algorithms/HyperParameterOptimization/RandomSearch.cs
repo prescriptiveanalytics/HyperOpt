@@ -1,7 +1,7 @@
 ﻿using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Feynman;
+using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
@@ -12,7 +12,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
     public class RandomSearch : HyperParameterOptimizationAlgorithm
     {
         public override async Task<List<ResultDTO>> Execute(
-            FeynmanDescriptor feynmanInstance,
+            RegressionDescriptor feynmanInstance,
             int seed,
             int numConfigurations,
             int evaluationsPerConfiguration)

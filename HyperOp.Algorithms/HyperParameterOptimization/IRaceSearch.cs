@@ -1,7 +1,7 @@
 ﻿using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Feynman;
+using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -21,7 +21,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         // numConfigurations caps target-runner calls, including repeated configurations.
         // ConfigurationIndex is irace's configuration ID, shared by repeated trials.
-        public override async Task<List<ResultDTO>> Execute(FeynmanDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
+        public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
             ArgumentNullException.ThrowIfNull(feynmanInstance);
             if (numConfigurations < 4)
@@ -156,7 +156,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             return (process.ExitCode, await output + Environment.NewLine + await errors);
         }
 
-        private async Task<ResultDTO> EvaluateConfiguration(FeynmanDescriptor instance, AlgorithmParameter parameter,
+        private async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance, AlgorithmParameter parameter,
             int configurationId, int seed, int evaluationsLimit)
         {
             var (alg, problem) = PrepareAlgorithm(instance, parameter, evaluationsLimit);

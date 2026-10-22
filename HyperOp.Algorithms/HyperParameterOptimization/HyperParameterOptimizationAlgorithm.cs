@@ -5,20 +5,21 @@ using HEAL.HeuristicLib.MachineLearning;
 using HEAL.HeuristicLib.Operators;
 using HEAL.HeuristicLib.Problems;
 using HEAL.HeuristicLib.Problems.MachineLearning;
+using HyperOp.Algorithms.Benchmarks;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
     public abstract class HyperParameterOptimizationAlgorithm
     {
         public abstract Task<List<ResultDTO>> Execute(
-            Feynman.FeynmanDescriptor feynmanInstance,
+            RegressionDescriptor feynmanInstance,
             int seed,
             int numConfigurations,
             int evaluationsPerConfiguration
             );
 
         protected (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem) PrepareAlgorithm(
-            Feynman.FeynmanDescriptor feynmanInstance,
+            RegressionDescriptor feynmanInstance,
             AlgorithmParameter parameter,
             int evaluationsLimit)
         {

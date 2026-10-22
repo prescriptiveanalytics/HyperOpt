@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <None Remove="Resources\systemPrompt.md" />
+    <None Include="..\data\SteelIndustry\Steel_industry_data.csv" Link="data\SteelIndustry\Steel_industry_data.csv"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\docker\irace.Dockerfile" Link="docker\irace.Dockerfile"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
