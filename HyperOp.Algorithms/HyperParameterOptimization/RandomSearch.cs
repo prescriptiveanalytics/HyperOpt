@@ -46,7 +46,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
                 // Prepare algorithm with this configuration
                 var (alg, problem) = PrepareAlgorithm(feynmanInstance, parameter, evaluationsPerConfiguration);
-                var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, 1234);
+                var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsPerConfiguration);
                 // Execute with timing
                 var qualityAnalyzer = Analyzer.BestMedianWorst(algorithm);
                 var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(seed + configIndex)).WithAnalyzer(qualityAnalyzer);
