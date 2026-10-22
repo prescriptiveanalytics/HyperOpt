@@ -86,8 +86,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                             int.Parse(fields[0], CultureInfo.InvariantCulture),
                             int.Parse(fields[1], CultureInfo.InvariantCulture), evaluationsPerConfiguration);
                         results.Add(result);
-                        // irace minimizes cost; the experiment maximizes Pearson R².
-                        var cost = double.IsFinite(result.BestFitness) ? -result.BestFitness : 1e100;
+                        // irace minimizes cost, matching validation NMSE.
+                        var cost = double.IsFinite(result.BestFitness) ? result.BestFitness : 1e100;
                         await process.StandardInput.WriteLineAsync(cost.ToString("R", CultureInfo.InvariantCulture));
                         await process.StandardInput.FlushAsync();
                     }

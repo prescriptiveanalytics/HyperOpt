@@ -68,8 +68,9 @@ namespace HyperOp.Algorithms
 
             var problem = new SymbolicRegressionProblem(
                 regressionData,
-                Metrics.PearsonR2,
-                searchSpace
+                Metrics.NMSE,
+                searchSpace,
+                useLinearScaling: true
                 );
 
 

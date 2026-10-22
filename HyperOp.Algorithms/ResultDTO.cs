@@ -12,14 +12,17 @@ namespace HyperOp.Algorithms
 
         public required double BestFitness { get; set; }
 
-        // BestFitness is validation Pearson R²; population statistics remain training metrics.
-        public string FitnessMetric { get; set; } = "training_pearson_r2";
+        // BestFitness is validation NMSE (lower is better); population statistics are training NMSE.
+        public string FitnessMetric { get; set; } = "training_nmse";
         public double? TrainingBestFitness { get; set; }
         public double? TestFitness { get; set; }
         public string? SelectedExpression { get; set; }
+        // Prediction = intercept + slope * SelectedExpression, fitted on training data only.
+        public double? LinearScalingSlope { get; set; }
+        public double? LinearScalingIntercept { get; set; }
 
         [System.Text.Json.Serialization.JsonIgnore]
-        internal HEAL.HeuristicLib.Encodings.SymbolicExpressions.ExpressionTree? SelectedModel { get; set; }
+        internal HEAL.HeuristicLib.MachineLearning.LinearlyScaledRegressor? SelectedModel { get; set; }
 
         public void EvaluateTest(Benchmarks.PreparedRegressionData data)
         {

@@ -296,9 +296,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 }
 
                 if (neighborResults.Count == 0) break;
-                var bestNeighborResult = neighborResults.OrderByDescending(r => r.BestFitness).First();
+                var bestNeighborResult = neighborResults.OrderBy(r => r.BestFitness).First();
                 // End if no improvement
-                if ((bestNeighborResult.BestFitness <= currentBestResult.BestFitness)) break;
+                if ((bestNeighborResult.BestFitness >= currentBestResult.BestFitness)) break;
                 currentConfiguration = bestNeighborResult.Configuration;
                 currentBestResult = bestNeighborResult;
             }

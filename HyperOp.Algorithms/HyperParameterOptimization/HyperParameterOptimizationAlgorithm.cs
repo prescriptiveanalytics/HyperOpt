@@ -34,8 +34,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             
             var problem = new SymbolicRegressionProblem(
                 regressionData,
-                Metrics.PearsonR2,
-                searchSpace
+                Metrics.NMSE,
+                searchSpace,
+                useLinearScaling: true
                 );
 
             var mutator = CreateMutator(parameter.MutatorType);
@@ -71,13 +72,17 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             PopulationState<ExpressionTree> finalState)
         {
             var best = finalState.Population.Where(individual => double.IsFinite(individual.ObjectiveVector[0]))
-                .OrderByDescending(individual => individual.ObjectiveVector[0]).FirstOrDefault()
+                .OrderBy(individual => individual.ObjectiveVector[0]).FirstOrDefault()
                 ?? throw new InvalidOperationException("GP produced no finite training objective.");
             result.TrainingBestFitness = best.ObjectiveVector[0];
-            result.SelectedModel = best.Candidate;
+            var model = new SymbolicRegressor(best.Candidate, "prediction")
+                .FitLinearScaling(descriptor.PreparedData.Training);
+            result.SelectedModel = model;
+            result.LinearScalingSlope = model.Parameters.Slope;
+            result.LinearScalingIntercept = model.Parameters.Intercept;
             result.SelectedExpression = best.Candidate.ToInfixString();
-            result.BestFitness = descriptor.PreparedData.ValidationFitness(best.Candidate);
-            result.FitnessMetric = "validation_pearson_r2";
+            result.BestFitness = descriptor.PreparedData.ValidationFitness(model);
+            result.FitnessMetric = "validation_nmse";
         }
     }
 }

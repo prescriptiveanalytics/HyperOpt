@@ -1,5 +1,4 @@
 using HEAL.HeuristicLib.Data;
-using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HEAL.HeuristicLib.MachineLearning;
 
 namespace HyperOp.Algorithms.Benchmarks;
@@ -9,8 +8,6 @@ public sealed class PreparedRegressionData
 {
     private readonly RegressionData validation;
     private readonly RegressionData test;
-    private readonly double[] validationTargets;
-    private readonly double[] testTargets;
 
     public RegressionData Training { get; }
     public IReadOnlyList<int> TrainingRows { get; }
@@ -28,15 +25,15 @@ public sealed class PreparedRegressionData
             for (int row = 0; row < rows.Length; row++)
                 for (int column = 0; column < columns.Length - 1; column++)
                     inputs[row, column] = columns[column][rows[row]];
+            var targets = rows.Select(row => columns[^1][row]).ToArray();
+            if (targets.All(value => value == targets[0]))
+                throw new ArgumentException("NMSE requires nonconstant targets in every partition.");
             return new RegressionData(DataFrame.FromMatrix(descriptor.AllowedInputVariables, inputs),
-                new Series<double>(descriptor.TargetVariable, rows.Select(row => columns[^1][row]).ToArray()));
+                new Series<double>(descriptor.TargetVariable, targets));
         }
         Training = Partition(partitions[0]);
         validation = Partition(partitions[1]);
         test = Partition(partitions[2]);
-        validationTargets = partitions[1].Select(row => columns[^1][row]).ToArray();
-        testTargets = partitions[2].Select(row => columns[^1][row]).ToArray();
-
     }
 
     public static PreparedRegressionData Create(RegressionDescriptor descriptor, List<List<double>> source,
@@ -67,32 +64,17 @@ public sealed class PreparedRegressionData
         return new PreparedRegressionData(descriptor, selected, partitions);
     }
 
-    public double ValidationFitness(ExpressionTree model) => PearsonR2(validationTargets,
-        model.Compile(optimize: true).Evaluate(validation.Inputs).ToArray());
+    public double ValidationFitness(IRegressor model) => Evaluate(model, validation);
 
-    public double TestFitness(ExpressionTree model) => PearsonR2(testTargets,
-        model.Compile(optimize: true).Evaluate(test.Inputs).ToArray());
+    public double TestFitness(IRegressor model) => Evaluate(model, test);
 
-    // Squared correlation, matching the GP objective; this is not 1 - SSE/SST.
-    public static double PearsonR2(double[] actual, double[] predicted)
+    // The model already contains training-fitted scaling; held-out targets are used only for scoring.
+    private static double Evaluate(IRegressor model, RegressionData data)
     {
-        if (actual.Length < 2 || actual.Length != predicted.Length)
-            throw new ArgumentException("Correlation requires equal arrays of at least two observations.");
-        if (actual.Any(x => !double.IsFinite(x)) || predicted.Any(x => !double.IsFinite(x))) return 0;
-        double actualScale = actual.Max(x => Math.Abs(x)), predictedScale = predicted.Max(x => Math.Abs(x));
-        if (actualScale == 0 || predictedScale == 0) return 0;
-        // Scaling before centering avoids overflow for finite but very large GP predictions.
-        double actualMean = actual.Average(x => x / actualScale), predictedMean = predicted.Average(x => x / predictedScale);
-        double covariance = 0, actualVariance = 0, predictedVariance = 0;
-        for (int row = 0; row < actual.Length; row++)
-        {
-            double a = actual[row] / actualScale - actualMean, p = predicted[row] / predictedScale - predictedMean;
-            covariance += a * p;
-            actualVariance += a * a;
-            predictedVariance += p * p;
-        }
-        if (actualVariance == 0 || predictedVariance == 0) return 0;
-        double correlation = covariance / Math.Sqrt(actualVariance) / Math.Sqrt(predictedVariance);
-        return Math.Clamp(correlation * correlation, 0, 1);
+        var predictions = model.Predict(data.Inputs);
+        foreach (double prediction in predictions.Values.Span)
+            if (!double.IsFinite(prediction)) return double.PositiveInfinity;
+        double error = Metrics.NMSE.Evaluate(predictions, data.Target);
+        return double.IsFinite(error) ? error : double.PositiveInfinity;
     }
 }

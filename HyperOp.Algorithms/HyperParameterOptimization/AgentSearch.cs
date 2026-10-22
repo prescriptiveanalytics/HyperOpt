@@ -27,6 +27,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
     public record Experiment
     {
         public required AlgorithmParameter HyperParameters { get; init; }
+        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals)]
         public required double BestFitness { get; init; }
         public required double Improvement { get; init; }
         public required bool IsNewBest { get; init; }
@@ -206,7 +207,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             "Runs symbolic regression on the current problem. " +
             "Supply only hyperparameters; C# controls evaluation limits and the number of configurations. " +
             "PopulationSize must not exceed the configured evaluation limit. " +
-            "Returns BestFitness (higher is better), Improvement, IsNewBest, EvaluationsUsed and RemainingEvaluations."
+            "Returns BestFitness (validation NMSE; lower is better, zero is ideal), Improvement, " +
+            "IsNewBest, EvaluationsUsed and RemainingEvaluations."
         )]
         private Task<Experiment> RunSymbolicRegression(
             int populationSize, double mutationRate, int maxTreeDepth, int maxTreeLength, MutatorType mutatorType)
@@ -281,9 +283,11 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             _currentEvaluations += evaluationsPerConfiguration;
 
             // Compute if improvement to previous best
-            double previousBest = Results.Count > 0 ? Results.Max(r => r.BestFitness) : -1;
-            double improvement = previousBest >= 0 ? result.BestFitness - previousBest : 100.00;
-            bool isNewBest = result.BestFitness > previousBest;
+            double previousBest = Results.Count > 0 ? Results.Min(r => r.BestFitness) : double.PositiveInfinity;
+            // Positive means an error reduction. The first trial has no measured improvement.
+            double improvement = double.IsFinite(previousBest) && double.IsFinite(result.BestFitness)
+                ? previousBest - result.BestFitness : 0;
+            bool isNewBest = result.BestFitness < previousBest;
 
             // What to provide to LLM to assert how good a configuration was? Simply best fitness?
             Results.Add(result);

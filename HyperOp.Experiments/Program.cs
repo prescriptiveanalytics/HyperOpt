@@ -154,7 +154,7 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                             if (cached.TrainingRows != preparedData.TrainingRows.Count ||
                                 cached.ValidationRows != preparedData.ValidationRows.Count ||
                                 cached.TestRows != preparedData.TestRows.Count ||
-                                cached.ConfigurationResults.Any(result => result.FitnessMetric != "validation_pearson_r2"))
+                                cached.ConfigurationResults.Any(result => result.FitnessMetric != "validation_nmse"))
                                 throw new InvalidDataException("Cached result does not use the current partitions and validation scoring.");
                             allResults.Add(cached);
                             continue;
@@ -169,7 +169,9 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                             evaluationsPerConfiguration
                             );
 
-                        var bestConfig = algRes.OrderByDescending(r => r.BestFitness).First();
+                        var bestConfig = algRes.Where(r => double.IsFinite(r.BestFitness))
+                            .OrderBy(r => r.BestFitness).FirstOrDefault()
+                            ?? throw new InvalidOperationException("No trial produced finite validation NMSE.");
                         bestConfig.EvaluateTest(preparedData);
                         var allConfigsResult = new AggregatedResultDTO
                         {
@@ -190,8 +192,8 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                         allResults.Add(allConfigsResult);
                         SaveResult(resultFilePath, allConfigsResult);
 
-                        Console.WriteLine($"Evaluated {algRes.Count} configurations. Best validation Pearson R²: {bestConfig.BestFitness:F4}; " +
-                            $"selected expression test Pearson R²: {bestConfig.TestFitness:F4}");
+                        Console.WriteLine($"Evaluated {algRes.Count} configurations. Best validation NMSE: {bestConfig.BestFitness:G6}; " +
+                            $"selected expression test NMSE: {bestConfig.TestFitness:G6}");
                     }
                     catch (NotImplementedException)
                     {

@@ -19,9 +19,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization.Util
 
                 // Extract metrics from population using API's ObjectiveVector
                 var objectives = finalState.Population.Select(ind => ind.ObjectiveVector[0]).ToList();
-                var bestFitness = objectives.Max();
+                var bestFitness = objectives.Min();
                 var meanFitness = objectives.Average();
-                var worstFitness = objectives.Min();
+                var worstFitness = objectives.Max();
 
                 // Create individual snapshots for the best individuals
                 var snapshots = finalState.Population
