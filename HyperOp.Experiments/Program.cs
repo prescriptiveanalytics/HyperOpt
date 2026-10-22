@@ -11,7 +11,7 @@ var parsedArgs = ParseArgs(args);
 const int instanceSeed = 42;
 Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<string, RegressionDescriptor>(StringComparer.OrdinalIgnoreCase)
 {
-        { "I.6.20",    new Feynman1(instanceSeed) },
+        { "I.6.20",    new Feynman2(instanceSeed) },
         { "I.9.18",    new Feynman5(instanceSeed) },
         { "I.15.3.x",  new Feynman17(instanceSeed) },
         { "I.30.5",    new Feynman31(instanceSeed) },
