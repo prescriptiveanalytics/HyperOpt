@@ -1,5 +1,4 @@
 ﻿using HyperOp.Algorithms.Benchmarks;
-using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;

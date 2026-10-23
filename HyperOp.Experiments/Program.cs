@@ -1,14 +1,13 @@
-using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
 using HyperOp.Algorithms;
 using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.Feynman.Instances;
 using HyperOp.Algorithms.HyperParameterOptimization;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using HyperOp.Experiments;
 
 var parsedArgs = ParseArgs(args);
 const int instanceSeed = 42;
+// Development setting; freeze the final assessment count after the pilot.
+const int assessmentRepetitions = 5;
 Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<string, RegressionDescriptor>(StringComparer.OrdinalIgnoreCase)
 {
         { "I.6.20",    new Feynman2(instanceSeed) },
@@ -17,7 +16,6 @@ Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<
         { "I.30.5",    new Feynman31(instanceSeed) },
         { "I.32.17",   new Feynman33(instanceSeed) },
         { "I.41.16",   new Feynman44(instanceSeed) },
-    //TODO Habs & HFo: Double-Check, we have I.48.2 instead of I.48.20, but the formula is the same
         { "I.48.20",   new Feynman50(instanceSeed) },
         { "II.6.15a",  new Feynman56(instanceSeed) },
         { "II.11.27",  new Feynman64(instanceSeed) },
@@ -32,6 +30,7 @@ Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<
 const string defaultAlgorithm = nameof(IRaceSearch);
 const string defaultInstance = "I.6.20";
 int repetitions = 1;
+int repetitionStart = 1;
 List<(int, int)> defaultBudget = [(100, 1_000)];
 List<(int, int)> budgetVariations = new List<(int, int)>()
 {
@@ -53,6 +52,8 @@ if (!parsedArgs.ContainsKey("budget-sweep"))
 
 if (parsedArgs.TryGetValue("repetitions", out var repetitionsValue))
     repetitions = ParsePositiveInt("repetitions", repetitionsValue);
+if (parsedArgs.TryGetValue("repetition-start", out var repetitionStartValue))
+    repetitionStart = ParsePositiveInt("repetition-start", repetitionStartValue);
 if (parsedArgs.ContainsKey("configurations") || parsedArgs.ContainsKey("evaluations"))
 {
     if (!parsedArgs.TryGetValue("configurations", out var configurationsValue) ||
@@ -67,62 +68,62 @@ var instanceFilters = parsedArgs.TryGetValue("instance", out var instValue)
     ? instValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
     : new List<string> { defaultInstance };
 var outputRoot = parsedArgs.TryGetValue("output", out var outputValue) ? outputValue : "./results";
-var runId = parsedArgs.TryGetValue("run-id", out var runIdValue)
-    ? SanitizePathSegment(runIdValue)
-    : $"run_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Environment.ProcessId}";
+// --run-id remains an optional campaign subdirectory, rather than a per-process directory.
+var runOutputDirectory = parsedArgs.TryGetValue("run-id", out var runIdValue)
+    ? Path.Combine(outputRoot, Uri.EscapeDataString(runIdValue)) : outputRoot;
 
-var runOutputDirectory = Path.Combine(outputRoot, runId);
+Directory.CreateDirectory(runOutputDirectory);
 
-if (!Directory.Exists(runOutputDirectory)) { Directory.CreateDirectory(runOutputDirectory); }
+if (parsedArgs.ContainsKey("aggregate"))
+{
+    try
+    {
+        int count = ExperimentResultStore.Aggregate(runOutputDirectory);
+        Console.WriteLine($"Aggregated {count} completed experiments into {Path.Combine(runOutputDirectory, "all_results.json")}");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Aggregation failed: {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
 
 await ExecuteExperiments(runOutputDirectory, algorithmFilter, instanceFilters);
 
-async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilter, List<string> instanceNameFilters)
+async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter, List<string> instanceNameFilters)
 {
-    List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = new() {
-        new IRaceSearch(),
-        new AgentSearch(useOLlama: true),
-        new GridSearch(),
-        new HillClimbingSearch(),
-        new RandomSearch()
-    };
-
-    if (!string.IsNullOrWhiteSpace(algorithmNameFilter) &&
-        !string.Equals(algorithmNameFilter, "all", StringComparison.OrdinalIgnoreCase))
-    {
-        hyperOpAlgs = hyperOpAlgs
-            .Where(algorithm => NormalizeKey(algorithm.GetType().Name) == NormalizeKey(algorithmNameFilter))
-            .ToList();
-    }
-
-    if (hyperOpAlgs.Count == 0)
-    {
-        Console.WriteLine($"No algorithm matched '{algorithmNameFilter}'.");
-        Console.WriteLine($"Available: {string.Join(", ", GetAvailableAlgorithmNames())}");
-        return;
-    }
+    var algorithmNames = GetAvailableAlgorithmNames().Where(name =>
+        string.Equals(algorithmNameFilter, "all", StringComparison.OrdinalIgnoreCase) ||
+        NormalizeKey(name) == NormalizeKey(algorithmNameFilter)).ToList();
+    if (algorithmNames.Count == 0)
+        throw new ArgumentException($"Unknown algorithm '{algorithmNameFilter}'. Available: {string.Join(", ", GetAvailableAlgorithmNames())}");
+    var agentParameters = AgentSearch.CreateOllamaParameters();
+    if (parsedArgs.TryGetValue("model", out var model)) agentParameters.ModelName = model;
+    if (parsedArgs.TryGetValue("ollama-url", out var ollamaUrl)) agentParameters.OllamaBaseUrl = ollamaUrl;
+    if (string.IsNullOrWhiteSpace(agentParameters.ModelName)) throw new ArgumentException("--model cannot be empty.");
+    List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = algorithmNames.Select(name => name switch {
+        nameof(IRaceSearch) => (HyperParameterOptimizationAlgorithm)new IRaceSearch(),
+        nameof(AgentSearch) => new AgentSearch(agentParameters),
+        nameof(GridSearch) => new GridSearch(),
+        nameof(HillClimbingSearch) => new HillClimbingSearch(),
+        _ => new RandomSearch()
+    }).ToList();
 
     // Resolve which benchmark instances to run
     IEnumerable<KeyValuePair<string, RegressionDescriptor>> selectedInstances;
-    if (instanceFilters.Count == 0)
-    {
-        selectedInstances = relevantBenchmarksets;
-    }
-    else
-    {
-        selectedInstances = instanceFilters
+    if (instanceNameFilters.Count == 0)
+        throw new ArgumentException("Specify at least one benchmark instance.");
+    selectedInstances = instanceNameFilters
             .Select(filter =>
             {
                 if (relevantBenchmarksets.TryGetValue(filter, out var descriptor))
-                    return (found: true, key: filter, descriptor);
-                Console.WriteLine($"Unknown benchmark instance '{filter}'. Available: {string.Join(", ", relevantBenchmarksets.Keys)}");
-                return (found: false, key: filter, descriptor: (RegressionDescriptor?)null);
+                    return (key: relevantBenchmarksets.Keys.First(key => key.Equals(filter, StringComparison.OrdinalIgnoreCase)), descriptor);
+                throw new ArgumentException($"Unknown benchmark instance '{filter}'. Available: {string.Join(", ", relevantBenchmarksets.Keys)}");
             })
-            .Where(x => x.found)
-            .Select(x => new KeyValuePair<string, RegressionDescriptor>(x.key, x.descriptor!));
-    }
+            .DistinctBy(x => x.key)
+            .Select(x => new KeyValuePair<string, RegressionDescriptor>(x.key, x.descriptor));
 
-    var allResults = new List<AggregatedResultDTO>();
     // Freeze selected instances before any HPO call, then share them across all repetitions.
     var frozenInstances = selectedInstances.Select(entry =>
         (entry.Key, Descriptor: entry.Value, Data: entry.Value.PreparedData)).ToList();
@@ -131,36 +132,34 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
     {
         foreach (var (benchmarkKey, regressionDescriptor, preparedData) in frozenInstances)
         {
-            foreach (int repetition in Enumerable.Range(1, repetitions))
+            foreach (int repetition in Enumerable.Range(repetitionStart, repetitions))
             {
                 foreach (var entry in budgetVariations)
                 {
                     int numConfigurations = entry.Item1;
                     int evaluationsPerConfiguration = entry.Item2;
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {benchmarkKey} " +
-                        $"(Repetition {repetition}/{repetitions}, Configurations: {numConfigurations}, Evaluations per Configuration: {evaluationsPerConfiguration})");
+                        $"(Repetition {repetition}, Configurations: {numConfigurations}, Evaluations per Configuration: {evaluationsPerConfiguration})");
 
                     try
                     {
-                        // Use the benchmark key (e.g. "I.6.20") for the filename, sanitized to replace dots/slashes
-                        string instanceSegment = SanitizePathSegment(benchmarkKey);
-                        string fileName = $"{algorithm.GetType().Name}_{instanceSegment}_rep{repetition}_{numConfigurations}cfg_{evaluationsPerConfiguration}eval.json";
+                        string? modelName = algorithm is AgentSearch ? agentParameters.ModelName : null;
+                        string fileName = ExperimentResultStore.JobName(algorithm.GetType().Name, benchmarkKey,
+                            repetition, numConfigurations, evaluationsPerConfiguration, assessmentRepetitions, modelName) + ".result.json";
                         string resultFilePath = Path.Combine(outputDirectory, fileName);
+                        int hpoSeed = checked(42 + 100 * repetition);
 
                         if (File.Exists(resultFilePath))
                         {
                             Console.WriteLine("  → Result already exists. Loading from cache.");
-                            var cached = LoadResult(resultFilePath);
-                            if (cached.TrainingRows != preparedData.TrainingRows.Count ||
+                            var cached = ExperimentResultStore.Load(resultFilePath);
+                            if (cached.RecommendationRule != algorithm.RecommendationRule ||
+                                cached.TrainingRows != preparedData.TrainingRows.Count ||
                                 cached.ValidationRows != preparedData.ValidationRows.Count ||
-                                cached.TestRows != preparedData.TestRows.Count ||
-                                cached.ConfigurationResults.Any(result => result.FitnessMetric != "validation_nmse"))
-                                throw new InvalidDataException("Cached result does not use the current partitions and validation scoring.");
-                            allResults.Add(cached);
+                                cached.TestRows != preparedData.TestRows.Count)
+                                throw new InvalidDataException("Cached result predates the verified benchmark/evaluation protocol. Use a fresh run directory.");
                             continue;
                         }
-
-                        int hpoSeed = 42 + (100 * repetition);
 
                         List<ResultDTO> algRes = await algorithm.Execute(
                             regressionDescriptor,
@@ -169,13 +168,17 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                             evaluationsPerConfiguration
                             );
 
-                        var bestConfig = algRes.Where(r => double.IsFinite(r.BestFitness))
-                            .OrderBy(r => r.BestFitness).FirstOrDefault()
-                            ?? throw new InvalidOperationException("No trial produced finite validation NMSE.");
+                        var bestConfig = HyperParameterOptimizationAlgorithm.BestValidationTrial(algRes);
+                        // Freeze both selections before any test data are scored.
+                        var recommendation = algorithm.NominateConfiguration(algRes);
+                        var nominatedConfiguration = recommendation.Configuration with { };
                         bestConfig.EvaluateTest(preparedData);
+                        var assessmentResults = await algorithm.AssessConfiguration(regressionDescriptor,
+                            nominatedConfiguration, algRes, hpoSeed, assessmentRepetitions, evaluationsPerConfiguration);
                         var allConfigsResult = new AggregatedResultDTO
                         {
                             AlgorithmName = algorithm.GetType().Name,
+                            ModelName = modelName,
                             InstanceName = benchmarkKey,
                             Repetition = repetition,
                             Seed = hpoSeed,
@@ -186,21 +189,22 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
                             TrainingRows = preparedData.TrainingRows.Count,
                             ValidationRows = preparedData.ValidationRows.Count,
                             TestRows = preparedData.TestRows.Count,
-                            SelectedTrialIndex = algRes.IndexOf(bestConfig)
+                            SelectedTrialIndex = algRes.IndexOf(bestConfig),
+                            RecommendedConfiguration = nominatedConfiguration,
+                            RecommendedConfigurationIndex = recommendation.ConfigurationIndex,
+                            RecommendationRule = algorithm.RecommendationRule,
+                            ConfigurationAssessmentResults = assessmentResults
                         };
 
-                        allResults.Add(allConfigsResult);
-                        SaveResult(resultFilePath, allConfigsResult);
+                        ExperimentResultStore.Save(outputDirectory, allConfigsResult);
 
                         Console.WriteLine($"Evaluated {algRes.Count} configurations. Best validation NMSE: {bestConfig.BestFitness:G6}; " +
-                            $"selected expression test NMSE: {bestConfig.TestFitness:G6}");
-                    }
-                    catch (NotImplementedException)
-                    {
-                        Console.WriteLine("Not implemented yet.");
+                            $"selected expression test NMSE: {bestConfig.TestFitness:G6}; " +
+                            $"{assessmentResults.Count} fresh-seed assessment runs saved separately.");
                     }
                     catch (Exception ex)
                     {
+                        Environment.ExitCode = 1;
                         Console.WriteLine($"Error: {ex.Message}");
                     }
                 }
@@ -208,21 +212,23 @@ async Task ExecuteExperiments(string outputDirectory, string? algorithmNameFilte
         }
     }
 
-    string aggregatePath = Path.Combine(outputDirectory, "all_results.json");
-    SaveAllResults(aggregatePath, allResults);
     Console.WriteLine($"Experiment complete. Results saved to {outputDirectory}");
 }
 
 Dictionary<string, string> ParseArgs(string[] cmdArgs)
 {
     var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    string[] known = ["help", "h", "algorithm", "instance", "output", "run-id", "repetitions", "repetition-start",
+        "configurations", "evaluations", "budget-sweep", "model", "ollama-url", "aggregate"];
 
     for (int i = 0; i < cmdArgs.Length; i++)
     {
         var arg = cmdArgs[i];
-        if (!arg.StartsWith("--")) continue;
+        if (!arg.StartsWith("--")) throw new ArgumentException($"Unexpected argument: {arg}");
 
         var key = arg[2..];
+        if (!known.Contains(key, StringComparer.OrdinalIgnoreCase) || result.ContainsKey(key))
+            throw new ArgumentException($"Unknown or duplicate option: --{key}");
         if (i + 1 < cmdArgs.Length && !cmdArgs[i + 1].StartsWith("--"))
         {
             result[key] = cmdArgs[i + 1];
@@ -244,12 +250,6 @@ int ParsePositiveInt(string name, string value)
     return number;
 }
 
-bool MatchesInstanceName(RegressionDescriptor descriptor, string filter)
-{
-    return NormalizeKey(descriptor.Name) == NormalizeKey(filter) ||
-           NormalizeKey(descriptor.GetType().Name) == NormalizeKey(filter);
-}
-
 IEnumerable<string> GetAvailableAlgorithmNames()
 {
     return new[] { nameof(AgentSearch), nameof(GridSearch), nameof(HillClimbingSearch), nameof(IRaceSearch), nameof(RandomSearch) };
@@ -263,13 +263,6 @@ string NormalizeKey(string value)
         : cleaned.ToLowerInvariant();
 }
 
-string SanitizePathSegment(string raw)
-{
-    var invalid = Path.GetInvalidFileNameChars();
-    var cleaned = new string(raw.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
-    return string.IsNullOrWhiteSpace(cleaned) ? "unknown" : cleaned;
-}
-
 void PrintUsage()
 {
     Console.WriteLine("Usage:");
@@ -280,9 +273,12 @@ void PrintUsage()
     Console.WriteLine($"                  {string.Join(", ", GetAvailableAlgorithmNames())}");
     Console.WriteLine($"  --instance    One or more benchmark keys, comma-separated (default: {defaultInstance}). Available:");
     Console.WriteLine($"                  {string.Join(", ", relevantBenchmarksets.Keys)}");
-    Console.WriteLine("  --output      Output root directory (default: ./results)");
-    Console.WriteLine("  --run-id      Unique subdirectory name for this run (default: timestamp + process id)");
+    Console.WriteLine("  --output      Shared result directory (default: ./results)");
+    Console.WriteLine("  --run-id      Optional campaign subdirectory (no subdirectory by default)");
     Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
+    Console.WriteLine("  --repetition-start First repetition identifier (default: 1; also determines seeds)");
+    Console.WriteLine("  --model <name> --ollama-url <url>  Agent model / server (default: qwen3:8b / http://localhost:11434)");
+    Console.WriteLine("  --aggregate   Combine completed *.result.json files into all_results.json, without running GP");
     Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget (default: 100 configs / 1000 evals)");
     Console.WriteLine("  --budget-sweep Run the full five budget variations instead of the default single budget");
     Console.WriteLine("  --help        Show this message");
@@ -290,23 +286,6 @@ void PrintUsage()
     Console.WriteLine("Examples:");
     Console.WriteLine("  HyperOp.Experiments --algorithm RandomSearch --instance I.6.20");
     Console.WriteLine("  HyperOp.Experiments --algorithm RandomSearch --instance I.6.20,I.9.18,II.11.27");
-    Console.WriteLine("  HyperOp.Experiments --instance I.6.20 --run-id job42 --output /data/results");
-}
-
-void SaveResult(string filePath, AggregatedResultDTO dto)
-{
-    var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
-    File.WriteAllText(filePath, json);
-}
-
-void SaveAllResults(string filePath, List<AggregatedResultDTO> allResults)
-{
-    var json = JsonSerializer.Serialize(allResults, new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
-    File.WriteAllText(filePath, json);
-}
-
-AggregatedResultDTO LoadResult(string filePath)
-{
-    var json = File.ReadAllText(filePath);
-    return JsonSerializer.Deserialize<AggregatedResultDTO>(json, new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals })!;
+    Console.WriteLine("  HyperOp.Experiments --instance I.6.20 --run-id campaign01 --output /data/results");
+    Console.WriteLine("  HyperOp.Experiments --aggregate --output /data/results/campaign01");
 }

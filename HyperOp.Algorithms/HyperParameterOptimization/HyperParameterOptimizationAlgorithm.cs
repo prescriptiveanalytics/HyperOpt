@@ -8,7 +8,6 @@ using HEAL.HeuristicLib.Operators.Evaluators;
 using HEAL.HeuristicLib.Problems;
 using HEAL.HeuristicLib.Problems.MachineLearning;
 using HyperOp.Algorithms.Benchmarks;
-using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 
@@ -25,7 +24,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public virtual string RecommendationRule => "minimum_validation_nmse";
 
-        public virtual ResultDTO NominateConfiguration(IReadOnlyList<ResultDTO> tuningResults) =>
+        public virtual ResultDTO NominateConfiguration(IReadOnlyList<ResultDTO> tuningResults) => BestValidationTrial(tuningResults);
+
+        public static ResultDTO BestValidationTrial(IReadOnlyList<ResultDTO> tuningResults) =>
             tuningResults.Where(result => double.IsFinite(result.BestFitness))
                 .OrderBy(result => result.BestFitness).FirstOrDefault()
             ?? throw new InvalidOperationException("No finite validation result is available for nomination.");
@@ -81,20 +82,37 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             var stopwatch = Stopwatch.StartNew();
             var finalState = await run.CompleteAsync();
             stopwatch.Stop();
-            var (generations, best, mean, worst, snapshots, curve) = this.EvaluateFinalState(finalState, run.GetResult(analyzer));
-            var result = new ResultDTO {
+            var curve = run.GetResult(analyzer);
+            var objectives = finalState.Population.Select(individual => individual.ObjectiveVector[0]).ToArray();
+            var best = finalState.Population.Where(individual => double.IsFinite(individual.ObjectiveVector[0]))
+                .OrderBy(individual => individual.ObjectiveVector[0]).FirstOrDefault()
+                ?? throw new InvalidOperationException("GP produced no finite training objective.");
+            var model = new SymbolicRegressor(best.Candidate, "prediction")
+                .FitLinearScaling(instance.PreparedData.Training);
+            return new ResultDTO {
                 Configuration = parameter, ConfigurationIndex = configurationId, GPSeed = seed,
-                BestFitness = best, MeanPopulationFitness = mean, WorstPopulationFitness = worst,
+                BestFitness = instance.PreparedData.ValidationFitness(model), FitnessMetric = "validation_nmse",
+                TrainingBestFitness = best.ObjectiveVector[0], SelectedModel = model,
+                LinearScalingSlope = model.Parameters.Slope, LinearScalingIntercept = model.Parameters.Intercept,
+                SelectedExpression = best.Candidate.ToInfixString(),
+                MeanPopulationFitness = objectives.Average(), WorstPopulationFitness = objectives.Max(),
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 EvaluationsUsed = counter.CurrentCount, EvaluationsLimit = evaluationsLimit,
-                GenerationsCompleted = generations, PopulationSize = parameter.PopulationSize,
-                BestIndividualsSnapshot = snapshots, QualityCurve = curve
+                // Entry zero is initialization, not an offspring generation.
+                GenerationsCompleted = curve.Count - 1, PopulationSize = parameter.PopulationSize,
+                BestIndividualsSnapshot = finalState.Population.Select(individual => new ResultDTO.IndividualSnapshot {
+                    ObjectiveValue = individual.ObjectiveVector[0], Depth = individual.Candidate.Depth,
+                    Length = individual.Candidate.Length, Complexity = individual.Candidate.Complexity,
+                    InfixRepresentation = individual.Candidate.ToInfixString()
+                }).ToList(),
+                QualityCurve = curve.Select((generation, index) => new ResultDTO.GenerationQualitySnapshot {
+                    GenerationNumber = index, BestQuality = generation.Best.ObjectiveVector[0],
+                    MedianQuality = generation.Median.ObjectiveVector[0], WorstQuality = generation.Worst.ObjectiveVector[0]
+                }).ToList()
             };
-            CompleteResult(instance, result, finalState);
-            return result;
         }
 
-        protected (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem) PrepareAlgorithm(
+        private static (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem) PrepareAlgorithm(
             RegressionDescriptor feynmanInstance,
             AlgorithmParameter parameter)
         {
@@ -128,7 +146,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             return (algorithm, problem);
         }
 
-        private IMutator<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>> CreateMutator(MutatorType mutatorType)
+        private static IMutator<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>> CreateMutator(MutatorType mutatorType)
         {
             return mutatorType switch {
                 MutatorType.NodeReplacement => new NodeReplacementMutator(),
@@ -142,21 +160,5 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             };
         }
 
-        protected static void CompleteResult(RegressionDescriptor descriptor, ResultDTO result,
-            PopulationState<ExpressionTree> finalState)
-        {
-            var best = finalState.Population.Where(individual => double.IsFinite(individual.ObjectiveVector[0]))
-                .OrderBy(individual => individual.ObjectiveVector[0]).FirstOrDefault()
-                ?? throw new InvalidOperationException("GP produced no finite training objective.");
-            result.TrainingBestFitness = best.ObjectiveVector[0];
-            var model = new SymbolicRegressor(best.Candidate, "prediction")
-                .FitLinearScaling(descriptor.PreparedData.Training);
-            result.SelectedModel = model;
-            result.LinearScalingSlope = model.Parameters.Slope;
-            result.LinearScalingIntercept = model.Parameters.Intercept;
-            result.SelectedExpression = best.Candidate.ToInfixString();
-            result.BestFitness = descriptor.PreparedData.ValidationFitness(model);
-            result.FitnessMetric = "validation_nmse";
-        }
     }
 }
