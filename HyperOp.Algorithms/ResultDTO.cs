@@ -9,6 +9,7 @@ namespace HyperOp.Algorithms
         public required AlgorithmParameter Configuration { get; set; }
 
         public required int ConfigurationIndex { get; set; }
+        public int? GPSeed { get; set; }
 
         public required double BestFitness { get; set; }
 
