@@ -27,7 +27,7 @@ namespace HyperOp.Algorithms.Feynman.Instances
         {
             get
             {
-                return string.Format("I.48.2 m*c**2/sqrt(1-v**2/c**2) | {0}",
+                return string.Format("I.48.20 m*c**2/sqrt(1-v**2/c**2) | {0}",
                   noiseRatio == null ? "no noise" : string.Format(System.Globalization.CultureInfo.InvariantCulture, "noise={0:g}", noiseRatio));
             }
         }
@@ -55,7 +55,7 @@ namespace HyperOp.Algorithms.Feynman.Instances
             var data = new List<List<double>>();
             var m = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
             var v = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 2).ToList();
-            var c = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 3, 10).ToList();
+            var c = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 3, 20).ToList();
 
             var E_n = new List<double>();
 

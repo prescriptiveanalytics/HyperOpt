@@ -28,7 +28,7 @@ namespace HyperOp.Algorithms.Feynman.Instances
             get
             {
                 return string.Format(
-                  "III.9.52 (p_d*Ef*t/h*sin((omega-omega_0)*t/2)**2/((omega-omega_0)*t/2)**2 | {0}",
+                  "III.9.52 p_d*Ef*t/h*sinc((omega-omega_0)*t/2)**2 | {0}",
                    noiseRatio == null ? "no noise" : string.Format(System.Globalization.CultureInfo.InvariantCulture, "noise={0:g}", noiseRatio));
             }
         }
@@ -60,6 +60,7 @@ namespace HyperOp.Algorithms.Feynman.Instances
             var p_d = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 3).ToList();
             var Ef = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 3).ToList();
             var t = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 3).ToList();
+            // Here h denotes reduced Planck's constant; sinc(x) = sin(x)/x, sinc(0) = 1.
             var h = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 3).ToList();
             var omega = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
             var omega_0 = ValueGenerator.GenerateUniformDistributedValues(rand.Next(), TestPartitionEnd, 1, 5).ToList();
@@ -76,9 +77,9 @@ namespace HyperOp.Algorithms.Feynman.Instances
 
             for (var i = 0; i < p_d.Count; i++)
             {
-                var res = p_d[i] * Ef[i] * t[i] / h[i] *
-                          Math.Pow(Math.Sin((omega[i] - omega_0[i]) * t[i] / 2), 2) /
-                          Math.Pow((omega[i] - omega_0[i]) * t[i] / 2, 2);
+                var phase = (omega[i] - omega_0[i]) * t[i] / 2;
+                var sinc = phase == 0 ? 1 : Math.Sin(phase) / phase;
+                var res = p_d[i] * Ef[i] * t[i] / h[i] * sinc * sinc;
                 prob.Add(res);
             }
 

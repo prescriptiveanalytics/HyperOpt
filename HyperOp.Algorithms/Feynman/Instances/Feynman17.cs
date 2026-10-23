@@ -27,7 +27,7 @@ namespace HyperOp.Algorithms.Feynman.Instances
         {
             get
             {
-                return string.Format("I.15.3x (x-u*t)/sqrt(1-u**2/c**2) | {0}",
+                return string.Format("I.15.3.x (x-u*t)/sqrt(1-u**2/c**2) | {0}",
                   noiseRatio == null ? "no noise" : string.Format(System.Globalization.CultureInfo.InvariantCulture, "noise={0:g}", noiseRatio));
             }
         }
