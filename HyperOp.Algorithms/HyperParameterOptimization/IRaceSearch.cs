@@ -1,7 +1,4 @@
-﻿using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Benchmarks;
+﻿using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -15,18 +12,26 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
     public class IRaceSearch : HyperParameterOptimizationAlgorithm
     {
         private const string RequestPrefix = "HYPEROP_EVALUATE\t";
+        private const string RecommendationPrefix = "HYPEROP_RECOMMEND\t";
         private const string DockerImage = "hyperop-irace";
         private static readonly SemaphoreSlim ImageLock = new(1, 1);
         private static bool imageReady;
+        private int? recommendedConfigurationId;
+
+        public override string RecommendationRule => "irace_final_elite";
+
+        public override ResultDTO NominateConfiguration(IReadOnlyList<ResultDTO> tuningResults) =>
+            tuningResults.FirstOrDefault(result => result.ConfigurationIndex == recommendedConfigurationId)
+            ?? throw new InvalidOperationException("irace did not nominate an evaluated configuration.");
 
         // numConfigurations caps target-runner calls, including repeated configurations.
         // ConfigurationIndex is irace's configuration ID, shared by repeated trials.
         public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
-            ArgumentNullException.ThrowIfNull(feynmanInstance);
             if (numConfigurations < 4)
                 throw new ArgumentOutOfRangeException(nameof(numConfigurations), "irace requires at least four target evaluations.");
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(evaluationsPerConfiguration);
+            ValidateBudget(numConfigurations, evaluationsPerConfiguration);
+            recommendedConfigurationId = null;
             await EnsureDockerImage();
             var directory = Directory.CreateTempSubdirectory("hyperop-irace-");
             try
@@ -64,6 +69,13 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 {
                     while (await process.StandardOutput.ReadLineAsync() is { } line)
                     {
+                        if (line.StartsWith(RecommendationPrefix, StringComparison.Ordinal))
+                        {
+                            if (recommendedConfigurationId is not null)
+                                throw new InvalidOperationException("irace returned more than one final recommendation.");
+                            recommendedConfigurationId = int.Parse(line[RecommendationPrefix.Length..], CultureInfo.InvariantCulture);
+                            continue;
+                        }
                         if (!line.StartsWith(RequestPrefix, StringComparison.Ordinal))
                         {
                             if (diagnostics.Length < 16_384) diagnostics.AppendLine(line);
@@ -80,8 +92,6 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                             MaxTreeLength = int.Parse(fields[5], CultureInfo.InvariantCulture),
                             MutatorType = Enum.Parse<MutatorType>(fields[6])
                         };
-                        Validator.ValidateObject(parameter, new ValidationContext(parameter), true);
-                        if (!Enum.IsDefined(parameter.MutatorType)) throw new InvalidOperationException("Unknown irace mutator.");
                         var result = await EvaluateConfiguration(feynmanInstance, parameter,
                             int.Parse(fields[0], CultureInfo.InvariantCulture),
                             int.Parse(fields[1], CultureInfo.InvariantCulture), evaluationsPerConfiguration);
@@ -95,7 +105,6 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     var errorText = await errors;
                     if (process.ExitCode != 0)
                         throw new InvalidOperationException($"irace exited with code {process.ExitCode}.\n{errorText}\n{diagnostics}");
-                    if (results.Count == 0) throw new InvalidOperationException("irace completed without evaluating any configurations.");
                     return results;
                 }
                 finally
@@ -154,29 +163,6 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             var errors = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
             return (process.ExitCode, await output + Environment.NewLine + await errors);
-        }
-
-        private async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance, AlgorithmParameter parameter,
-            int configurationId, int seed, int evaluationsLimit)
-        {
-            var (alg, problem) = PrepareAlgorithm(instance, parameter, evaluationsLimit);
-            var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsLimit);
-            var analyzer = Analyzer.BestMedianWorst(algorithm);
-            var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(seed)).WithAnalyzer(analyzer);
-            var stopwatch = Stopwatch.StartNew();
-            var finalState = await run.CompleteAsync();
-            stopwatch.Stop();
-            var (generations, best, mean, worst, snapshots, curve) = this.EvaluateFinalState(finalState, run.GetResult(analyzer));
-            var result = new ResultDTO {
-                Configuration = parameter, ConfigurationIndex = configurationId,
-                BestFitness = best, MeanPopulationFitness = mean, WorstPopulationFitness = worst,
-                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                EvaluationsUsed = generations * parameter.PopulationSize, // Same approximation as other searches.
-                EvaluationsLimit = evaluationsLimit, GenerationsCompleted = generations,
-                PopulationSize = parameter.PopulationSize, BestIndividualsSnapshot = snapshots, QualityCurve = curve
-            };
-            CompleteResult(instance, result, finalState);
-            return result;
         }
 
         private static string CreateParameterDefinitions()

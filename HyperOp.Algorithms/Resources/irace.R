@@ -32,5 +32,11 @@ scenario <- list(parameters = parameters, targetRunner = target_runner,
                  minNbSurvival = 1L, nbIterations = iterations, mu = 1L,
                  firstTest = 2L, eachTest = 1L, parallel = 0L,
                  logFile = "", quiet = TRUE)
-invisible(irace::irace(scenario = scenario))
+elites <- irace::irace(scenario = scenario)
+# Retain irace's native final choice, rather than the luckiest individual GP trial.
+if (!is.data.frame(elites) || nrow(elites) < 1L) stop("irace did not return final elites")
+# irace() returns this table ranked best to worst; getFinalElites() instead expects a saved log object.
+best <- elites[1L, , drop = FALSE]
+cat("HYPEROP_RECOMMEND\t", best$.ID.[[1L]], "\n", sep = "")
+flush(stdout())
 close(input)

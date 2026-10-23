@@ -14,8 +14,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization.Util
         {
             public (int generationCount,double bestFitness,double meanFitness,double worstFitness,List<ResultDTO.IndividualSnapshot> snapshots,List<ResultDTO.GenerationQualitySnapshot> qualitySnapshots) EvaluateFinalState(PopulationState<ExpressionTree> finalState, List<BestMedianWorstEntry<ExpressionTree>> qualityCurve)
             {
-                int generationCount = qualityCurve.Count;
-                var worstOfFirstGeneration = qualityCurve.First().Worst.ObjectiveVector[0];
+                // Entry zero is the evaluated initial population, not an offspring generation.
+                int generationCount = Math.Max(0, qualityCurve.Count - 1);
 
                 // Extract metrics from population using API's ObjectiveVector
                 var objectives = finalState.Population.Select(ind => ind.ObjectiveVector[0]).ToList();

@@ -1,13 +1,8 @@
-﻿using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
-using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Benchmarks;
+﻿using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Text;
@@ -43,8 +38,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             List<int> MaxTreeDepths,
             List<int> MaxTreeLengths,
             MutatorType[] MutatorTypes
-        ) searchSpace,
-        int evaluations)
+        ) searchSpace)
         {
             return new AlgorithmParameter
             {
@@ -195,114 +189,38 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
+            ValidateBudget(numConfigurations, evaluationsPerConfiguration);
             var results = new List<ResultDTO>();
-
-            var searchSpace = this.GenerateSearchSpace();
-
-            var currentConfiguration = CreateInitialConfiguration(
-                searchSpace,
-                evaluationsPerConfiguration);
-
+            var searchSpace = GenerateSearchSpace();
+            var currentConfiguration = CreateInitialConfiguration(searchSpace);
             var evaluatedConfigurations = new List<AlgorithmParameter>();
-
-            int configIndex = 0;
-
-            Console.WriteLine($"Running symbolic regression with parameters: {currentConfiguration}");
-            var (alg, problem) = PrepareAlgorithm(feynmanInstance!, currentConfiguration, evaluationsPerConfiguration);
-            var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsPerConfiguration);
-
-            var qualityAnalyzer = Analyzer.BestMedianWorst(algorithm);
-            var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(seed + configIndex)).WithAnalyzer(qualityAnalyzer);
-
-            var stopwatch = Stopwatch.StartNew();
-            var finalState = await run.CompleteAsync();
-            stopwatch.Stop();
-
-            var qualityCurve = run.GetResult(qualityAnalyzer);
-
-            var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
-
-            // Create result record
-            var result = new ResultDTO
-            {
-                Configuration = currentConfiguration,
-                ConfigurationIndex = -1, // ??? count somehow everytime the same configuration is used?
-                BestFitness = bestFitness,
-                MeanPopulationFitness = meanFitness,
-                WorstPopulationFitness = worstFitness,
-                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                EvaluationsUsed = generationCount * currentConfiguration.PopulationSize,  // Use an approximation
-                EvaluationsLimit = evaluationsPerConfiguration,
-                GenerationsCompleted = generationCount,
-                PopulationSize = currentConfiguration.PopulationSize,
-                BestIndividualsSnapshot = snapshots,
-                QualityCurve = qualitySnapshots
-            };
-            CompleteResult(feynmanInstance, result, finalState);
-            var currentBestResult = result;
-
-            results.Add(result);
-
+            var currentBestResult = await EvaluateConfiguration(feynmanInstance, currentConfiguration,
+                0, seed, evaluationsPerConfiguration);
+            results.Add(currentBestResult);
             evaluatedConfigurations.Add(currentConfiguration);
-            configIndex++;
 
-            // Start hill climbing search
-            while(results.Count < numConfigurations)
+            while (results.Count < numConfigurations)
             {
-                var neighbors = GenerateNeighbors(currentConfiguration, searchSpace);
-                // remove duplicates
-                neighbors = neighbors.Where(n => !evaluatedConfigurations.Any(e => SameConfiguration(n, e))).ToList();
-                if (neighbors.Count == 0) break;
-
-                int remainingConfigurations =numConfigurations - results.Count;
-
-                neighbors = neighbors.Take(remainingConfigurations).ToList();
-
+                var neighbors = GenerateNeighbors(currentConfiguration, searchSpace)
+                    .Where(n => !evaluatedConfigurations.Any(e => SameConfiguration(n, e)))
+                    .Take(numConfigurations - results.Count).ToList();
                 var neighborResults = new List<ResultDTO>();
-                // Evaluate each neighbor configuration
-                foreach(var neighbor in neighbors)
+                foreach (var neighbor in neighbors)
                 {
-                    Console.WriteLine($"Running symbolic regression with parameters: {neighbor}");
-                    var (algNeighbor, problemNeighbor) = PrepareAlgorithm(feynmanInstance!, neighbor, evaluationsPerConfiguration);
-                    var algorithmNeighbor = algNeighbor.WithMaxEvaluatedCandidates(algNeighbor.Evaluator, evaluationsPerConfiguration);
-                    var qualityAnalyzerNeighbor = Analyzer.BestMedianWorst(algorithmNeighbor);
-                    var runNeighbor = algorithmNeighbor.CreateRun(problemNeighbor, RandomNumberGenerator.Create(seed + configIndex)).WithAnalyzer(qualityAnalyzerNeighbor);
-                    stopwatch.Restart();
-                    var finalStateNeighbor = await runNeighbor.CompleteAsync();
-                    stopwatch.Stop();
-
-                    var qualityCurveNeighbor = runNeighbor.GetResult(qualityAnalyzerNeighbor);
-                    var (generationCountNeighbor, bestFitnessNeighbor, meanFitnessNeighbor, worstFitnessNeighbor, snapshotsNeighbor, qualitySnapshotsNeighbor) = this.EvaluateFinalState(finalStateNeighbor, qualityCurveNeighbor);
-                    // Create result record
-                    var resultNeighbor = new ResultDTO
-                    {
-                        Configuration = neighbor,
-                        ConfigurationIndex = -1,
-                        BestFitness = bestFitnessNeighbor,
-                        MeanPopulationFitness = meanFitnessNeighbor,
-                        WorstPopulationFitness = worstFitnessNeighbor,
-                        ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                        EvaluationsUsed = generationCountNeighbor * neighbor.PopulationSize,
-                        EvaluationsLimit = evaluationsPerConfiguration,
-                        GenerationsCompleted = generationCountNeighbor,
-                        PopulationSize = neighbor.PopulationSize,
-                        BestIndividualsSnapshot = snapshotsNeighbor,
-                        QualityCurve = qualitySnapshotsNeighbor
-                    };
-                    CompleteResult(feynmanInstance, resultNeighbor, finalStateNeighbor);
-                    neighborResults.Add(resultNeighbor);
+                    int trialIndex = results.Count;
+                    var result = await EvaluateConfiguration(feynmanInstance, neighbor,
+                        trialIndex, seed + trialIndex, evaluationsPerConfiguration);
+                    // Every executed neighbor consumes a trial, including unsuccessful ones.
+                    results.Add(result);
+                    neighborResults.Add(result);
                     evaluatedConfigurations.Add(neighbor);
-                    configIndex++;
                 }
-
-                if (neighborResults.Count == 0) break;
-                var bestNeighborResult = neighborResults.OrderBy(r => r.BestFitness).First();
-                // End if no improvement
-                if ((bestNeighborResult.BestFitness >= currentBestResult.BestFitness)) break;
-                currentConfiguration = bestNeighborResult.Configuration;
-                currentBestResult = bestNeighborResult;
+                var bestNeighbor = neighborResults.OrderBy(r => r.BestFitness).FirstOrDefault();
+                if (bestNeighbor is null || bestNeighbor.BestFitness >= currentBestResult.BestFitness)
+                    break;
+                currentConfiguration = bestNeighbor.Configuration;
+                currentBestResult = bestNeighbor;
             }
-
             return results;
         }
     }

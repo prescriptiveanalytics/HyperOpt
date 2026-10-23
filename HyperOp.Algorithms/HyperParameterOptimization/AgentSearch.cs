@@ -1,6 +1,3 @@
-using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents.Util;
@@ -57,6 +54,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         private int _totalEvaluations;
         private int _evaluationsPerConfiguration;
         private int _numConfigurations;
+        private readonly SemaphoreSlim _trialLock = new(1, 1);
         private int RemainingEvaluations => _totalEvaluations - _currentEvaluations;
 
         public List<Experiment> _experimentHistory = new List<Experiment>();
@@ -154,12 +152,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
-            ArgumentNullException.ThrowIfNull(feynmanInstance);
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(numConfigurations);
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(evaluationsPerConfiguration);
-            if (evaluationsPerConfiguration < 10)
-                throw new ArgumentOutOfRangeException(nameof(evaluationsPerConfiguration),
-                    "At least 10 evaluations are required for the minimum population size.");
+            ValidateBudget(numConfigurations, evaluationsPerConfiguration);
             int totalEvaluations = checked(numConfigurations * evaluationsPerConfiguration);
 
             Results = new List<ResultDTO>();
@@ -225,85 +218,40 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter)
         {
-            if (FeynmanInstance is null || _evaluationsPerConfiguration <= 0)
-                throw new InvalidOperationException("Execute must initialize the regression problem and evaluation limits first.");
-            if (Results.Count >= _numConfigurations)
-                throw new InvalidOperationException("The configured number of regression runs has been reached.");
-            int evaluationsPerConfiguration = _evaluationsPerConfiguration;
-            ArgumentNullException.ThrowIfNull(algorithmParameter);
-            System.ComponentModel.DataAnnotations.Validator.ValidateObject(
-                algorithmParameter,
-                new System.ComponentModel.DataAnnotations.ValidationContext(algorithmParameter),
-                validateAllProperties: true);
-            if (!Enum.IsDefined(algorithmParameter.MutatorType))
-                throw new ArgumentException("Unknown mutator type.", nameof(algorithmParameter));
-            if (evaluationsPerConfiguration <= 0 || evaluationsPerConfiguration < algorithmParameter.PopulationSize)
-                throw new ArgumentOutOfRangeException(nameof(evaluationsPerConfiguration),
-                    "The evaluation limit must be positive and at least the population size.");
-            if (evaluationsPerConfiguration > RemainingEvaluations)
-                throw new InvalidOperationException(
-                    $"Requested {evaluationsPerConfiguration} evaluations, " +
-                    $"but only {RemainingEvaluations} remain.");
-
-            Console.WriteLine($"Running symbolic regression with the following parameters:{algorithmParameter}");
-            // Prepare algorithm with this configuration
-            var (alg, problem) = PrepareAlgorithm(FeynmanInstance!, algorithmParameter, evaluationsPerConfiguration);
-            var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsPerConfiguration);
-
-            var qualityAnalyzer = Analyzer.BestMedianWorst(algorithm);
-            var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(Seed)).WithAnalyzer(qualityAnalyzer);
-
-            var stopwatch = Stopwatch.StartNew();
-            var finalState = await run.CompleteAsync();
-            stopwatch.Stop();
-
-            var qualityCurve = run.GetResult(qualityAnalyzer);
-            var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
-
-            // Create result record
-            var result = new ResultDTO
+            await _trialLock.WaitAsync();
+            try
             {
-                Configuration = algorithmParameter,
-                ConfigurationIndex = -1, // ??? count somehow everytime the same configuration is used?
-                BestFitness = bestFitness,
-                MeanPopulationFitness = meanFitness,
-                WorstPopulationFitness = worstFitness,
-                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                EvaluationsUsed = generationCount * algorithmParameter.PopulationSize,  // Use an approximation
-                EvaluationsLimit = evaluationsPerConfiguration,
-                GenerationsCompleted = generationCount,
-                PopulationSize = algorithmParameter.PopulationSize,
-                BestIndividualsSnapshot = snapshots,
-                QualityCurve = qualitySnapshots
-            };
+                if (Results.Count >= _numConfigurations)
+                    throw new InvalidOperationException("The configured number of regression runs has been reached.");
+                int evaluationsPerConfiguration = _evaluationsPerConfiguration;
 
-            CompleteResult(FeynmanInstance, result, finalState);
+                Console.WriteLine($"Running symbolic regression with the following parameters:{algorithmParameter}");
+                int trialIndex = Results.Count;
+                var result = await EvaluateConfiguration(FeynmanInstance!, algorithmParameter,
+                    trialIndex, Seed + trialIndex, evaluationsPerConfiguration);
+                _currentEvaluations += result.EvaluationsUsed;
 
-            // Charge the full allocation so approximate metrics cannot permit extra runs.
-            _currentEvaluations += evaluationsPerConfiguration;
+                // Compute if improvement to previous best
+                double previousBest = Results.Count > 0 ? Results.Min(r => r.BestFitness) : double.PositiveInfinity;
+                // Positive means an error reduction. The first trial has no measured improvement.
+                double improvement = double.IsFinite(previousBest) && double.IsFinite(result.BestFitness)
+                    ? previousBest - result.BestFitness : 0;
+                bool isNewBest = result.BestFitness < previousBest;
 
-            // Compute if improvement to previous best
-            double previousBest = Results.Count > 0 ? Results.Min(r => r.BestFitness) : double.PositiveInfinity;
-            // Positive means an error reduction. The first trial has no measured improvement.
-            double improvement = double.IsFinite(previousBest) && double.IsFinite(result.BestFitness)
-                ? previousBest - result.BestFitness : 0;
-            bool isNewBest = result.BestFitness < previousBest;
+                Results.Add(result);
+                Console.WriteLine($"Remaining Evaluations: {RemainingEvaluations}");
+                var experiment = new Experiment { HyperParameters = result.Configuration,
+                    BestFitness = result.BestFitness,
+                    Improvement = improvement,
+                    IsNewBest = isNewBest,
+                    EvaluationsUsed = result.EvaluationsUsed,
+                    RemainingEvaluations = RemainingEvaluations,
+                };
+                _experimentHistory.Add(experiment);
+                return experiment;
 
-            // What to provide to LLM to assert how good a configuration was? Simply best fitness?
-            Results.Add(result);
-            // Agent would benefit from a return type that is a bit simpler
-            Console.WriteLine($"Remaining Evaluations: {RemainingEvaluations}");
-            var experiment = new Experiment { HyperParameters = algorithmParameter, 
-                BestFitness = result.BestFitness,
-                Improvement = improvement,
-                IsNewBest = isNewBest,
-                EvaluationsUsed = result.EvaluationsUsed,
-                RemainingEvaluations = RemainingEvaluations,
-            };
-            _experimentHistory.Add(experiment);
-            return experiment;
-
-            //return new Experiment { HyperParameters = algorithmParameter, QualityMetrik = 0.0 };
+            }
+            finally { _trialLock.Release(); }
         }
 
         [Description(
@@ -323,7 +271,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         }
 
         [Description(
-            "Returns the total evaluation budget, allocations charged to completed runs as UsedEvaluations, " +
+            "Returns the total evaluation budget, actual candidate evaluations as UsedEvaluations, " +
             "and the remaining unallocated budget. Each completed run consumes its full configured allocation."
         )]
         public EvaluationBudget GetRemainingEvaluations()

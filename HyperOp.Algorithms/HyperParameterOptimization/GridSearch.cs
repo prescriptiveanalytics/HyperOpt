@@ -1,11 +1,6 @@
-﻿using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
-using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Benchmarks;
+﻿using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics;
 using System.Reflection;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
@@ -14,7 +9,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
     {
         // Generates a grid of hyperparameter combinations based on how many discretization steps are specified
         // Grid size is product of parameters Default = 5.000 Configurations (gets really large fast!)
-        private List<AlgorithmParameter> GenerateGrid(int evaluations, int populationSize = 10, int mutationRate = 5, int maxTreeDepth = 5, int maxTreeLength = 5)
+        private List<AlgorithmParameter> GenerateGrid(int populationSize = 10, int mutationRate = 5, int maxTreeDepth = 5, int maxTreeLength = 5)
         {
             var popRange = typeof(AlgorithmParameter)
                 .GetProperty(nameof(AlgorithmParameter.PopulationSize))
@@ -68,50 +63,18 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
+            ValidateBudget(numConfigurations, evaluationsPerConfiguration);
             var results = new List<ResultDTO>();
-
-            // TODO: How to deal with num Configurations?
-            var budget = numConfigurations * evaluationsPerConfiguration;
-            var configurations = GenerateGrid(budget);
-            int configIndex = 0;
-            // now try all
-            foreach (var config in configurations)
+            var configurations = GenerateGrid().ToArray();
+            // A seeded permutation avoids favoring the lexicographically first grid corner
+            // when the trial cap is smaller than the fixed grid. Exhaustion may leave budget unused.
+            new Random(seed).Shuffle(configurations);
+            foreach (var config in configurations.Take(numConfigurations))
             {
-                Console.WriteLine($"Running symbolic regression with the following parameters:{config}");
-                var (alg, problem) = PrepareAlgorithm(feynmanInstance, config, budget);
-                var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, budget);
-                // Execute with timing
-                var qualityAnalyzer = Analyzer.BestMedianWorst(algorithm);
-                var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(seed + configIndex)).WithAnalyzer(qualityAnalyzer);
-
-                var stopwatch = Stopwatch.StartNew();
-                var finalState = await run.CompleteAsync();
-                stopwatch.Stop();
-
-                var qualityCurve = run.GetResult(qualityAnalyzer);
-                var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
-                
-                // Create result record
-                var result = new ResultDTO
-                {
-                    Configuration = config,
-                    ConfigurationIndex = configIndex,
-                    BestFitness = bestFitness,
-                    MeanPopulationFitness = meanFitness,
-                    WorstPopulationFitness = worstFitness,
-                    ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                    EvaluationsUsed = generationCount * config.PopulationSize,  // Use an approximation
-                    EvaluationsLimit = evaluationsPerConfiguration,
-                    GenerationsCompleted = generationCount,
-                    PopulationSize = config.PopulationSize,
-                    BestIndividualsSnapshot = snapshots,
-                    QualityCurve = qualitySnapshots
-                };
-                CompleteResult(feynmanInstance, result, finalState);
-                results.Add(result);
-                configIndex++;
+                int trialIndex = results.Count;
+                results.Add(await EvaluateConfiguration(feynmanInstance, config,
+                    trialIndex, seed + trialIndex, evaluationsPerConfiguration));
             }
-
             return results;
         }
     }

@@ -1,10 +1,6 @@
-﻿using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Analysis;
-using HEAL.HeuristicLib.Random;
-using HyperOp.Algorithms.Benchmarks;
+﻿using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.Util;
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics;
 using System.Reflection;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
@@ -17,6 +13,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             int numConfigurations,
             int evaluationsPerConfiguration)
         {
+            ValidateBudget(numConfigurations, evaluationsPerConfiguration);
             var results = new List<ResultDTO>();
             var random = new Random(seed);
 
@@ -37,47 +34,15 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             {
                 // Sample a random hyperparameter configuration
                 var parameter = new AlgorithmParameter {
-                    PopulationSize = random.Next((int)popRange!.Minimum!, (int)popRange.Maximum!),
+                    PopulationSize = random.Next((int)popRange!.Minimum!, (int)popRange.Maximum! + 1),
                     MutationRate = random.NextDouble() * ((double)mutationRange!.Maximum! - (double)mutationRange.Minimum!) + (double)mutationRange.Minimum!,
-                    MaxTreeDepth = random.Next((int)maxTreeDepthRange!.Minimum!, (int)maxTreeDepthRange.Maximum!),
-                    MaxTreeLength = random.Next((int)maxTreeLengthRange!.Minimum!, (int)maxTreeLengthRange.Maximum!),
+                    MaxTreeDepth = random.Next((int)maxTreeDepthRange!.Minimum!, (int)maxTreeDepthRange.Maximum! + 1),
+                    MaxTreeLength = random.Next((int)maxTreeLengthRange!.Minimum!, (int)maxTreeLengthRange.Maximum! + 1),
                     MutatorType = mutatorTypes[random.Next(mutatorTypes.Length)]
                 };
 
-                // Prepare algorithm with this configuration
-                var (alg, problem) = PrepareAlgorithm(feynmanInstance, parameter, evaluationsPerConfiguration);
-                var algorithm = alg.WithMaxEvaluatedCandidates(alg.Evaluator, evaluationsPerConfiguration);
-                // Execute with timing
-                var qualityAnalyzer = Analyzer.BestMedianWorst(algorithm);
-                var run = algorithm.CreateRun(problem, RandomNumberGenerator.Create(seed + configIndex)).WithAnalyzer(qualityAnalyzer);
-
-                var stopwatch = Stopwatch.StartNew();
-                var finalState = await run.CompleteAsync();
-                stopwatch.Stop();
-
-                var qualityCurve = run.GetResult(qualityAnalyzer);
-
-                var (generationCount, bestFitness, meanFitness, worstFitness, snapshots, qualitySnapshots) = this.EvaluateFinalState(finalState, qualityCurve);
-
-                // Create result record
-                var result = new ResultDTO
-                {
-                    Configuration = parameter,
-                    ConfigurationIndex = -1, // ??? count somehow everytime the same configuration is used?
-                    BestFitness = bestFitness,
-                    MeanPopulationFitness = meanFitness,
-                    WorstPopulationFitness = worstFitness,
-                    ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                    EvaluationsUsed = generationCount * parameter.PopulationSize,  // Use an approximation
-                    EvaluationsLimit = evaluationsPerConfiguration,
-                    GenerationsCompleted = generationCount,
-                    PopulationSize = parameter.PopulationSize,
-                    BestIndividualsSnapshot = snapshots,
-                    QualityCurve = qualitySnapshots
-                };
-
-                CompleteResult(feynmanInstance, result, finalState);
-                results.Add(result);
+                results.Add(await EvaluateConfiguration(feynmanInstance, parameter,
+                    configIndex, seed + configIndex, evaluationsPerConfiguration));
             }
 
             return results;
