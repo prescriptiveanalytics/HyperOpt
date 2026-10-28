@@ -14,5 +14,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization.AgentComponents
         // Interaction cap, separate from the GP trial cap.
         public int Turns { get; set; } = 50;
         public string SystemPrompt { get; set; } = "systemPrompt";
+        public int DecisionIntervalGenerations { get; set; } = 100;
+        public TimeSpan DecisionTimeout { get; set; } = TimeSpan.FromSeconds(30);
     }
 }

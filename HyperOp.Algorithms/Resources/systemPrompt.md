@@ -13,6 +13,6 @@ Valid configurations:
 - MaxTreeLength: integer from 3 to 100.
 - MutatorType: a value permitted by the tool schema.
 
-The request supplies the maximum number of configurations and the evaluation allocation per run. Supply only hyperparameters; the application controls evaluation limits. Each completed run consumes its full allocation. There is no Generations parameter.
+The request supplies the maximum number of configurations and the evaluation allocation per run. Supply only hyperparameters; the application controls evaluation limits. A separate controller reviews training-only population summaries at checkpoints and may stop a run early. Unused evaluations remain unused; each started GP run still consumes one trial. There is no Generations parameter.
 
 Continue searching while another valid run fits the available budget, unless an observed fitness reaches zero. You do not have to use the whole budget. At completion, briefly report the best configuration actually evaluated and its BestFitness. Keep commentary concise and spend the interaction on experiments rather than lengthy explanations.

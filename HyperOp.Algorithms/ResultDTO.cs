@@ -49,6 +49,9 @@ namespace HyperOp.Algorithms
 
         public List<GenerationQualitySnapshot>? QualityCurve { get; set; }
 
+        public List<HyperParameterOptimization.RunControlObservation>? ControlObservations { get; set; }
+        public string TerminationReason { get; set; } = "evaluation_limit";
+
         public class IndividualSnapshot
         {
             public required double ObjectiveValue { get; set; }

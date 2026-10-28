@@ -11,6 +11,8 @@ using Microsoft.Extensions.Configuration;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
@@ -23,6 +25,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         public required bool IsNewBest { get; init; }
         public int EvaluationsUsed { get; init; }
         public int RemainingEvaluations { get; init; }
+        public string TerminationReason { get; init; } = "evaluation_limit";
     }
 
     public record EvaluationBudget
@@ -40,10 +43,17 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         private int _evaluationsPerConfiguration;
         private int _numConfigurations;
         private readonly SemaphoreSlim _trialLock = new(1, 1);
-        private int UsedEvaluations => Results.Sum(result => result.EvaluationsUsed);
+        private int UsedEvaluations => Results.Sum(result => result.EvaluationsUsed) + Volatile.Read(ref _activeEvaluations);
         private int RemainingEvaluations => _totalEvaluations - UsedEvaluations;
         private readonly List<Experiment> _experimentHistory = [];
-        private readonly bool useOLlama;
+        private readonly TornadoAgent _controller;
+        private readonly int _decisionInterval;
+        private readonly TimeSpan _decisionTimeout;
+        private int _activeEvaluations;
+        private static readonly JsonSerializerOptions DecisionJson = new() {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter(allowIntegerValues: false) }
+        };
 
         public RegressionDescriptor? FeynmanInstance { get; set; }
         public int Seed { get; set; }
@@ -52,7 +62,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         public AgentSearch(bool useOLlama = true)
             : this(useOLlama ? CreateOllamaParameters() : new AgentParameter())
         {
-            this.useOLlama = useOLlama;
+
         }
 
         public static AgentParameter CreateOllamaParameters()
@@ -88,6 +98,23 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 _agent.Options.ServiceTier = agentParameters.ServiceTiers;
             else
                 _agent.Options.ReasoningEffort = LlmTornado.Code.ChatReasoningEfforts.None;
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(agentParameters.DecisionIntervalGenerations);
+            if (agentParameters.DecisionTimeout <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(agentParameters.DecisionTimeout));
+            _decisionInterval = agentParameters.DecisionIntervalGenerations;
+            _decisionTimeout = agentParameters.DecisionTimeout;
+            _controller = new TornadoAgent(client: api,
+                model: new ChatModel(agentParameters.ModelName, agentParameters.Provider),
+                outputSchema: typeof(ControllerReply),
+                instructions: "Decide whether the current GP run should Continue or Stop using only the supplied training observations. " +
+                    "Continue when further search is worthwhile; Stop when its remaining allowance should be left unused. " +
+                    "The first checkpoint has no measured improvement. Diversity is the fraction of unique expression strings, not semantic diversity. " +
+                    "Return only JSON with Action (Continue or Stop) and Reason (a short explanation).",
+                streaming: false);
+            _controller.Options.Temperature = agentParameters.Temperature;
+            if (agentParameters.Provider == LlmTornado.Code.LLmProviders.OpenRouter)
+                _controller.Options.ServiceTier = agentParameters.ServiceTiers;
+            else _controller.Options.ReasoningEffort = LlmTornado.Code.ChatReasoningEfforts.None;
             _maxTurns = agentParameters.Turns;
         }
 
@@ -159,25 +186,42 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter)
         {
+            await _trialLock.WaitAsync();
             try
             {
-                if (useOLlama) { await _trialLock.WaitAsync(); }
 
                 if (Results.Count >= _numConfigurations)
                     throw new InvalidOperationException("The configured number of regression runs has been reached.");
 
-                //TODO: How to let agent decide to continue based on state?
-                Func<AlgorithmRun<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>, PopulationState<ExpressionTree>>, bool> interceptRun = (state) => {
-                    //var result = state.GetResult();
-                    //if (state > 0 && state.Generation % 10 == 0)
-                    //    Console.WriteLine($"Generation {state.Generation}: BestFitness={state.BestFitness:F6}, EvaluationsUsed={state.EvaluationsUsed}, RemainingEvaluations={RemainingEvaluations}");
-                    return false;
-                };
+                var observations = new List<RunControlObservation>();
+                async Task<RunDecision> DecideAsync(RunProgress progress, CancellationToken token)
+                {
+                    Volatile.Write(ref _activeEvaluations, progress.EvaluationsUsed);
+                    var timer = Stopwatch.StartNew();
+                    bool fallback = false;
+                    RunDecision decision;
+                    try
+                    {
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                        timeout.CancelAfter(_decisionTimeout);
+                        decision = await RequestRunDecisionAsync(algorithmParameter, progress, timeout.Token).WaitAsync(timeout.Token);
+                        if (!Enum.IsDefined(decision.Action) || string.IsNullOrWhiteSpace(decision.Reason))
+                            throw new JsonException("Invalid controller decision.");
+                    }
+                    catch (Exception ex) when (!token.IsCancellationRequested)
+                    {
+                        fallback = true;
+                        decision = new RunDecision(RunAction.Continue, $"Controller unavailable: {ex.GetType().Name}");
+                    }
+                    observations.Add(new RunControlObservation(progress, decision, timer.Elapsed.TotalMilliseconds, fallback));
+                    return decision;
+                }
 
                 Console.WriteLine($"Running symbolic regression with the following parameters:{algorithmParameter}");
                 int trialIndex = Results.Count;
                 var result = await EvaluateConfiguration(FeynmanInstance!, algorithmParameter,
-                    trialIndex, Seed + trialIndex, _evaluationsPerConfiguration, interceptRun);
+                    trialIndex, Seed + trialIndex, _evaluationsPerConfiguration, DecideAsync, _decisionInterval);
+                result.ControlObservations = observations;
 
                 // Compute if improvement to previous best
                 double previousBest = Results.Count > 0 ? Results.Min(r => r.BestFitness) : double.PositiveInfinity;
@@ -186,9 +230,11 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     ? previousBest - result.BestFitness : 0;
                 bool isNewBest = result.BestFitness < previousBest;
 
+                Volatile.Write(ref _activeEvaluations, 0);
                 Results.Add(result);
                 Console.WriteLine($"Remaining Evaluations: {RemainingEvaluations}");
                 var experiment = new Experiment {
+                    TerminationReason = result.TerminationReason,
                     HyperParameters = result.Configuration,
                     BestFitness = result.BestFitness,
                     Improvement = improvement,
@@ -200,7 +246,23 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 return experiment;
 
             }
-            finally { if (useOLlama) { _trialLock.Release(); } }
+            finally { Volatile.Write(ref _activeEvaluations, 0); _trialLock.Release(); }
+        }
+
+        public sealed record ControllerReply(
+            [property: JsonRequired] string Action, [property: JsonRequired] string Reason);
+
+        // A fresh, tool-free conversation avoids re-entering the active HPO agent.
+        protected virtual async Task<RunDecision> RequestRunDecisionAsync(AlgorithmParameter configuration,
+            RunProgress progress, CancellationToken cancellationToken)
+        {
+            var response = await _controller.Run(JsonSerializer.Serialize(new { Configuration = configuration, Progress = progress }),
+                maxTurns: 1, cancellationToken: cancellationToken).WaitAsync(cancellationToken);
+            string content = response.Messages.Last().Content ?? throw new JsonException("Controller returned no content.");
+            var decision = JsonSerializer.Deserialize<ControllerReply>(content, DecisionJson);
+            if (decision is null || !Enum.TryParse<RunAction>(decision.Action, true, out var action) || !Enum.IsDefined(action) || string.IsNullOrWhiteSpace(decision.Reason))
+                throw new JsonException("Expected a Continue/Stop action and a nonempty reason.");
+            return new RunDecision(action, decision.Reason);
         }
 
         [Description(
@@ -213,7 +275,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         [Description(
             "Returns the total evaluation budget, actual candidate evaluations as UsedEvaluations, " +
-            "and the remaining unallocated budget. Each completed run consumes its full configured allocation."
+            "and remaining budget, including the active run at its latest checkpoint. A controller may stop a run early."
         )]
         public EvaluationBudget GetRemainingEvaluations()
         {

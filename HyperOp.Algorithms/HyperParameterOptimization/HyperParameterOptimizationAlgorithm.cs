@@ -1,4 +1,4 @@
-﻿using HEAL.HeuristicLib.Algorithms;
+using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Data;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
@@ -18,12 +18,6 @@ using System.Diagnostics;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
-    struct InterceptorFeedback
-    {
-        //Quality curve (best, median, worst) of the current run.
-        //Population state of the current run.
-    }
-
     public abstract class HyperParameterOptimizationAlgorithm
     {
         public abstract Task<List<ResultDTO>> Execute(
@@ -75,19 +69,17 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     "At least 100 candidate evaluations per trial are required for the full population-size domain.");
         }
 
-        //private record MyTerm(Func<bool> myfunc) : StatelessTerminator<ExpressionTree,ISearchState>// ISearchState -> PopulationState<ExpressionTree>
-        //{
-        //    public override bool IsTerminalState(ISearchState state) => myfunc();
-        //}
-
         protected virtual async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance,
            AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit)
         {
-            return await EvaluateConfiguration(instance, parameter, configurationId, seed, evaluationsLimit, interceptRun: null);
+            return await EvaluateConfiguration(instance, parameter, configurationId, seed, evaluationsLimit, decideAsync: null);
         }
         protected virtual async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance,
-            AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit, Func<AlgorithmRun<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>, PopulationState<ExpressionTree>>, bool>? interceptRun = null)
+            AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit,
+            Func<RunProgress, CancellationToken, Task<RunDecision>>? decideAsync,
+            int decisionIntervalGenerations = 100, CancellationToken cancellationToken = default)
         {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(decisionIntervalGenerations);
             parameter = parameter with { };
             var (algorithm, problem) = PrepareAlgorithm(instance, parameter);
             // Only candidates reaching the real evaluator are counted. The limiter assigns
@@ -111,29 +103,41 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 .WithAnalyzer(analyzer);
 
             PopulationState<ExpressionTree>? lastState = null;
-            if(interceptRun is not null)
+            bool stoppedByController = false;
+            if (decideAsync is not null)
             {
-                foreach (var res in run.Stream())
+                int generation = -1;
+                double? previousCheckpointBest = null;
+                foreach (var state in run.Stream())
                 {
-                    lastState = res;
-                    var stop = interceptRun(run);
-                    
-                    if (stop)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    lastState = state;
+                    generation++;
+                    if (generation == 0 || generation % decisionIntervalGenerations != 0 ||
+                        counter.CurrentCount >= evaluationsLimit) continue;
+
+                    var finite = state.Population.Select(i => i.ObjectiveVector[0]).Where(double.IsFinite).ToArray();
+                    double? bestNow = finite.Length == 0 ? null : finite.Min();
+                    var lengths = state.Population.Select(i => i.Candidate.Length).Order().ToArray();
+                    var progress = new RunProgress(generation, counter.CurrentCount,
+                        evaluationsLimit - counter.CurrentCount, bestNow,
+                        previousCheckpointBest is double before && bestNow is double now ? before - now : null,
+                        (double)state.Population.Select(i => i.Candidate.ToInfixString()).Distinct().Count() / lengths.Length,
+                        (lengths[(lengths.Length - 1) / 2] + lengths[lengths.Length / 2]) / 2.0);
+                    previousCheckpointBest = bestNow;
+                    var decision = await decideAsync(progress, cancellationToken);
+                    if (decision.Action == RunAction.Stop)
                     {
+                        stoppedByController = true;
                         break;
                     }
-
                 }
-            } else
+            }
+            else
             {
                 lastState = await run.CompleteAsync();
             }
-            
-
-            if(lastState == null) throw new InvalidOperationException("No population state was produced during the run.");  
-            //var 2
-            //var a1 = algorithm.WithTerminator(new MyTerm(()=> true));
-            //var run2 =a1.Complete(problem, HEAL.HeuristicLib.Random.RandomNumberGenerator.Create(seed));
+            if (lastState is null) throw new InvalidOperationException("No population state was produced during the run.");
 
             stopwatch.Stop();
             var curve = run.GetResult(analyzer);
@@ -144,6 +148,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             var model = new SymbolicRegressor(best.Candidate, "prediction")
                 .FitLinearScaling(instance.PreparedData.Training);
             return new ResultDTO {
+                TerminationReason = stoppedByController ? "controller_stop" : "evaluation_limit",
                 Configuration = parameter,
                 ConfigurationIndex = configurationId,
                 GPSeed = seed,
