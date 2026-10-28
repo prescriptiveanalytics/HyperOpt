@@ -39,6 +39,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         private int UsedEvaluations => Results.Sum(result => result.EvaluationsUsed);
         private int RemainingEvaluations => _totalEvaluations - UsedEvaluations;
         private readonly List<Experiment> _experimentHistory = [];
+        private readonly bool useOLlama;
+
         public RegressionDescriptor? FeynmanInstance { get; set; }
         public int Seed { get; set; }
         public List<ResultDTO> Results { get; set; } = new List<ResultDTO>();
@@ -46,12 +48,12 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         public AgentSearch(bool useOLlama = true)
             : this(useOLlama ? CreateOllamaParameters() : new AgentParameter())
         {
+            this.useOLlama = useOLlama;
         }
 
         public static AgentParameter CreateOllamaParameters()
         {
-            return new AgentParameter
-            {
+            return new AgentParameter {
                 Provider = LlmTornado.Code.LLmProviders.Custom,
                 ModelName = "qwen3:8b",
                 OllamaBaseUrl = "http://localhost:11434",
@@ -142,8 +144,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         private Task<Experiment> RunSymbolicRegression(
             int populationSize, double mutationRate, int maxTreeDepth, int maxTreeLength, MutatorType mutatorType)
         {
-            return RunSymbolicRegression(new AlgorithmParameter
-            {
+            return RunSymbolicRegression(new AlgorithmParameter {
                 PopulationSize = populationSize,
                 MutationRate = mutationRate,
                 MaxTreeDepth = maxTreeDepth,
@@ -154,9 +155,10 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public async Task<Experiment> RunSymbolicRegression(AlgorithmParameter algorithmParameter)
         {
-            await _trialLock.WaitAsync();
             try
             {
+                if (useOLlama) { await _trialLock.WaitAsync(); }
+
                 if (Results.Count >= _numConfigurations)
                     throw new InvalidOperationException("The configured number of regression runs has been reached.");
 
@@ -174,7 +176,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
                 Results.Add(result);
                 Console.WriteLine($"Remaining Evaluations: {RemainingEvaluations}");
-                var experiment = new Experiment { HyperParameters = result.Configuration,
+                var experiment = new Experiment {
+                    HyperParameters = result.Configuration,
                     BestFitness = result.BestFitness,
                     Improvement = improvement,
                     IsNewBest = isNewBest,
@@ -185,7 +188,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 return experiment;
 
             }
-            finally { _trialLock.Release(); }
+            finally { if (useOLlama) { _trialLock.Release(); } }
         }
 
         [Description(
