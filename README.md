@@ -1,69 +1,76 @@
 # HyperOp
 
-## irace optimization
+Hyperparameter optimization for genetic programming symbolic regression on Feynman
+benchmarks and Steel Industry energy data.
 
-`IRaceSearch` implements `HyperParameterOptimizationAlgorithm.Execute` with the
-[irace R package](https://cran.r-project.org/package=irace). R proposes configurations
-and performs racing; the .NET process evaluates each proposal using the base class's
-`PrepareAlgorithm`, the requested candidate evaluation limit, and the standard
-`ResultDTO` snapshots. No R bindings or R-specific .NET dependencies are required.
+## Requirements
 
-Start Docker Desktop with Linux containers enabled. Set `HyperOp.Experiments` as the
-Visual Studio startup project, select its **HyperOp.Experiments** launch profile,
-and press **F5**. This profile runs the .NET experiment on the host.
+- .NET 10 SDK.
+- PowerShell 7 for batch runs.
+- Docker Desktop with Linux containers for irace (the image builds automatically).
+- Ollama with the requested model available for agent runs.
 
-The settings near the top of `Program.cs` default to `IRaceSearch`, benchmark
-`I.6.20`, 100 trials, 1,000 GA evaluations per trial, and one repetition. Change those
-defaults directly in code or override them with command-line arguments.
+## Run
 
-`IRaceSearch` uses the hardcoded image name `hyperop-irace`. On the first `Execute`
-call it checks Docker and builds the image automatically if absent. MSBuild copies
-`docker/irace.Dockerfile` into the application output and publish directories, so
-this works independently of Visual Studio's working directory. No environment
-variables or manual Docker build/start commands are required. The initial build
-downloads and compiles R packages and may take a few minutes.
-
-The pipeline automatically starts an R container for each optimization run and removes
-it on normal exit; no separate `docker run` or server process is needed. The container
-communicates with the running .NET experiment, so do not launch it by itself.
-
-The image runs Rscript as its entrypoint. Docker must be running and able to bind
-mount the host temporary directory. Each invocation gets an isolated directory and
-container, with standard input/output carrying proposals and costs. The experiment
-itself stays on the host. The image is reused across calls; each `Execute` call
-starts a fresh R container with that call's seed and budget.
-
-After changing the Dockerfile, rebuild the image manually from the repository root:
+From the repository root:
 
 ```powershell
-docker build -f docker/irace.Dockerfile -t hyperop-irace .
+dotnet run --project HyperOp.Experiments -c Release -- --algorithm RandomSearch --instance I.6.20 --configurations 10 --evaluations 1000 --output ./results/demo
 ```
 
-Run a short experiment:
+Methods: `RandomSearch`, `GridSearch`, `HillClimbingSearch`, `IRaceSearch`,
+`AgentSearch`. Use `--help` for all options and benchmark names.
+
+`--configurations` caps GP trials, including repeats. `--evaluations` caps candidate
+evaluations per trial, including initialization; the minimum is 100. Supply both
+when overriding budgets. irace requires at least four trials.
+
+For a local agent:
 
 ```powershell
-dotnet run --project HyperOp.Experiments -- --algorithm IRaceSearch --instance I.6.20 --configurations 100 --evaluations 1000 --repetitions 1 --output ./results
+dotnet run --project HyperOp.Experiments -c Release -- --algorithm AgentSearch --instance I.6.20 --model qwen3:8b --ollama-url http://localhost:11434 --output ./results/agent-demo
 ```
 
-Omit arguments to use the same defaults as F5. Use `--budget-sweep` for the original
-five budget variations, and `--algorithm all` to run every optimizer. The default is
-one repetition. Instance selection accepts the benchmark aliases
-in `Program.cs`, descriptor names, and class names such as `Feynman1`.
+Agent runs request Continue/Stop decisions every 100 offspring generations.
+Change `DecisionIntervalGenerations` and `DecisionTimeout` in
+[AgentParameter.cs](HyperOp.Algorithms/HyperParameterOptimization/AgentComponents/AgentParameter.cs).
+Short runs may finish before a checkpoint. Controller failures fall back to Continue.
 
-The search space comes from `AlgorithmParameter` range attributes and `MutatorType`.
-irace minimizes costs, so the runner returns negative best fitness and penalizes
-nonfinite fitness. It uses irace's trial seeds for the GA and the supplied search
-seed for irace. The benchmark descriptor controls dataset generation as usual.
+## Batch runs
 
-For irace, `numConfigurations` / `--configurations` means the **maximum total target
-evaluations**, including repeated trials of a configuration. A minimum of four is
-required. Returned results include every actual trial, and `ConfigurationIndex`
-stores irace's configuration ID, so repeated IDs are expected. irace can stop before
-the budget is exhausted. Small budgets use fewer racing iterations (one for ten
-trials); larger budgets use up to five iterations. GA stopping happens at the
-library's candidate-evaluation checkpoints; `EvaluationsUsed` uses the same
-generation-count approximation as the existing searches.
+```powershell
+./scripts/Run-Experiments.ps1 -Algorithms RandomSearch,IRaceSearch -Instances I.6.20,SteelIndustry -Repetitions 10 -Output ./results/campaign01
+```
 
-Adjust `--configurations` to change irace's total trial budget and `--evaluations` to
-change the GA work per trial. Both options must be supplied together. Results are
-written under `results/<run-id>/`, including per-experiment JSON and `all_results.json`.
+The launcher builds once, runs CPU jobs in parallel, then agent jobs sequentially,
+and combines completed results into `all_results.json`. Use `-MaxProcesses` to set
+CPU workers, `-PlanOnly` to preview jobs, and `-RepetitionStart` to assign distinct
+repetition ranges across machines. Agent batches accept `-Models` and `-OllamaUrl`.
+
+## Results
+
+Each completed experiment produces a `*.result.json` file; batch runs also save
+stdout/stderr logs. Completed jobs are reused. Interrupted experiments restart.
+Use a new output directory after changing code, data, prompts or settings.
+
+Tuning uses validation NMSE (lower is better). Test scores are saved for the selected
+expression and for the nominated configuration rerun with five fresh GP seeds.
+These assessment runs are additional to the tuning budget. Agent results also
+record checkpoint decisions and inference times.
+
+Rebuild the aggregate manually:
+
+```powershell
+dotnet run --project HyperOp.Experiments -c Release -- --aggregate --output ./results/campaign01
+```
+
+## Checks and references
+
+```powershell
+dotnet run --project HyperOp.Checks -c Release
+```
+
+The checks do not need Docker or a model service.
+See the [Feynman specification](data/Feynman/README.md),
+[Steel dataset notes](data/SteelIndustry/README.md) and
+[paper sources](Paper/Paper/sigconf.tex) for research details.
