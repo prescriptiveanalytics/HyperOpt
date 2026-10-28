@@ -1,3 +1,7 @@
+using HEAL.HeuristicLib.Algorithms;
+using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
+using HEAL.HeuristicLib.Execution;
+using HEAL.HeuristicLib.Problems;
 using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
 using LlmTornado;
@@ -162,10 +166,18 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 if (Results.Count >= _numConfigurations)
                     throw new InvalidOperationException("The configured number of regression runs has been reached.");
 
+                //TODO: How to let agent decide to continue based on state?
+                Func<AlgorithmRun<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>, PopulationState<ExpressionTree>>, bool> interceptRun = (state) => {
+                    //var result = state.GetResult();
+                    //if (state > 0 && state.Generation % 10 == 0)
+                    //    Console.WriteLine($"Generation {state.Generation}: BestFitness={state.BestFitness:F6}, EvaluationsUsed={state.EvaluationsUsed}, RemainingEvaluations={RemainingEvaluations}");
+                    return false;
+                };
+
                 Console.WriteLine($"Running symbolic regression with the following parameters:{algorithmParameter}");
                 int trialIndex = Results.Count;
                 var result = await EvaluateConfiguration(FeynmanInstance!, algorithmParameter,
-                    trialIndex, Seed + trialIndex, _evaluationsPerConfiguration);
+                    trialIndex, Seed + trialIndex, _evaluationsPerConfiguration, interceptRun);
 
                 // Compute if improvement to previous best
                 double previousBest = Results.Count > 0 ? Results.Min(r => r.BestFitness) : double.PositiveInfinity;

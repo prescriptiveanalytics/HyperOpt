@@ -1,18 +1,29 @@
 ﻿using HEAL.HeuristicLib.Algorithms;
-using HEAL.HeuristicLib.Data;
 using HEAL.HeuristicLib.Analysis;
+using HEAL.HeuristicLib.Data;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
+using HEAL.HeuristicLib.Execution;
 using HEAL.HeuristicLib.MachineLearning;
 using HEAL.HeuristicLib.Operators;
 using HEAL.HeuristicLib.Operators.Evaluators;
+using HEAL.HeuristicLib.Operators.Interceptors;
+using HEAL.HeuristicLib.Operators.Terminators;
 using HEAL.HeuristicLib.Problems;
 using HEAL.HeuristicLib.Problems.MachineLearning;
+using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Benchmarks;
+using Parlot.Fluent;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
+    struct InterceptorFeedback
+    {
+        //Quality curve (best, median, worst) of the current run.
+        //Population state of the current run.
+    }
+
     public abstract class HyperParameterOptimizationAlgorithm
     {
         public abstract Task<List<ResultDTO>> Execute(
@@ -64,50 +75,105 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     "At least 100 candidate evaluations per trial are required for the full population-size domain.");
         }
 
+        //private record MyTerm(Func<bool> myfunc) : StatelessTerminator<ExpressionTree,ISearchState>// ISearchState -> PopulationState<ExpressionTree>
+        //{
+        //    public override bool IsTerminalState(ISearchState state) => myfunc();
+        //}
+
         protected virtual async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance,
-            AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit)
+           AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit)
+        {
+            return await EvaluateConfiguration(instance, parameter, configurationId, seed, evaluationsLimit, interceptRun: null);
+        }
+        protected virtual async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance,
+            AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit, Func<AlgorithmRun<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>, PopulationState<ExpressionTree>>, bool>? interceptRun = null)
         {
             parameter = parameter with { };
             var (algorithm, problem) = PrepareAlgorithm(instance, parameter);
             // Only candidates reaching the real evaluator are counted. The limiter assigns
             // worst fitness to unscored candidates in the last, possibly partial, generation.
             var countedEvaluator = algorithm.Evaluator.CountEvaluatedCandidates(out var counter);
+
+            //TODO: CHeck if both are necessary (if time is left, otherwise ignore)
             algorithm = algorithm with {
                 Evaluator = countedEvaluator.LimitEvaluations(evaluationsLimit, enforceLimitWithinBatch: true),
-                Terminator = AfterOperatorCountTerminator.For(problem, counter, evaluationsLimit)
+                Terminator = AfterOperatorCountTerminator.For(problem, counter, evaluationsLimit),
             };
+
+            //TODO: Extend
+            //var bmwanalyzer = Analyzer.BestMedianWorst(algorithm);
+            //var divanalyzer = 
+
             var analyzer = Analyzer.BestMedianWorst(algorithm);
+            
+            var stopwatch = Stopwatch.StartNew();
             var run = algorithm.CreateRun(problem, HEAL.HeuristicLib.Random.RandomNumberGenerator.Create(seed))
                 .WithAnalyzer(analyzer);
-            var stopwatch = Stopwatch.StartNew();
-            var finalState = await run.CompleteAsync();
+
+            PopulationState<ExpressionTree>? lastState = null;
+            if(interceptRun is not null)
+            {
+                foreach (var res in run.Stream())
+                {
+                    lastState = res;
+                    var stop = interceptRun(run);
+                    
+                    if (stop)
+                    {
+                        break;
+                    }
+
+                }
+            } else
+            {
+                lastState = await run.CompleteAsync();
+            }
+            
+
+            if(lastState == null) throw new InvalidOperationException("No population state was produced during the run.");  
+            //var 2
+            //var a1 = algorithm.WithTerminator(new MyTerm(()=> true));
+            //var run2 =a1.Complete(problem, HEAL.HeuristicLib.Random.RandomNumberGenerator.Create(seed));
+
             stopwatch.Stop();
             var curve = run.GetResult(analyzer);
-            var objectives = finalState.Population.Select(individual => individual.ObjectiveVector[0]).ToArray();
-            var best = finalState.Population.Where(individual => double.IsFinite(individual.ObjectiveVector[0]))
+            var objectives = lastState.Population.Select(individual => individual.ObjectiveVector[0]).ToArray();
+            var best = lastState.Population.Where(individual => double.IsFinite(individual.ObjectiveVector[0]))
                 .OrderBy(individual => individual.ObjectiveVector[0]).FirstOrDefault()
                 ?? throw new InvalidOperationException("GP produced no finite training objective.");
             var model = new SymbolicRegressor(best.Candidate, "prediction")
                 .FitLinearScaling(instance.PreparedData.Training);
             return new ResultDTO {
-                Configuration = parameter, ConfigurationIndex = configurationId, GPSeed = seed,
-                BestFitness = instance.PreparedData.ValidationFitness(model), FitnessMetric = "validation_nmse",
-                TrainingBestFitness = best.ObjectiveVector[0], SelectedModel = model,
-                LinearScalingSlope = model.Parameters.Slope, LinearScalingIntercept = model.Parameters.Intercept,
+                Configuration = parameter,
+                ConfigurationIndex = configurationId,
+                GPSeed = seed,
+                BestFitness = instance.PreparedData.ValidationFitness(model),
+                FitnessMetric = "validation_nmse",
+                TrainingBestFitness = best.ObjectiveVector[0],
+                SelectedModel = model,
+                LinearScalingSlope = model.Parameters.Slope,
+                LinearScalingIntercept = model.Parameters.Intercept,
                 SelectedExpression = best.Candidate.ToInfixString(),
-                MeanPopulationFitness = objectives.Average(), WorstPopulationFitness = objectives.Max(),
+                MeanPopulationFitness = objectives.Average(),
+                WorstPopulationFitness = objectives.Max(),
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
-                EvaluationsUsed = counter.CurrentCount, EvaluationsLimit = evaluationsLimit,
+                EvaluationsUsed = counter.CurrentCount,
+                EvaluationsLimit = evaluationsLimit,
                 // Entry zero is initialization, not an offspring generation.
-                GenerationsCompleted = curve.Count - 1, PopulationSize = parameter.PopulationSize,
-                BestIndividualsSnapshot = finalState.Population.Select(individual => new ResultDTO.IndividualSnapshot {
-                    ObjectiveValue = individual.ObjectiveVector[0], Depth = individual.Candidate.Depth,
-                    Length = individual.Candidate.Length, Complexity = individual.Candidate.Complexity,
+                GenerationsCompleted = curve.Count - 1,
+                PopulationSize = parameter.PopulationSize,
+                BestIndividualsSnapshot = lastState.Population.Select(individual => new ResultDTO.IndividualSnapshot {
+                    ObjectiveValue = individual.ObjectiveVector[0],
+                    Depth = individual.Candidate.Depth,
+                    Length = individual.Candidate.Length,
+                    Complexity = individual.Candidate.Complexity,
                     InfixRepresentation = individual.Candidate.ToInfixString()
                 }).ToList(),
                 QualityCurve = curve.Select((generation, index) => new ResultDTO.GenerationQualitySnapshot {
-                    GenerationNumber = index, BestQuality = generation.Best.ObjectiveVector[0],
-                    MedianQuality = generation.Median.ObjectiveVector[0], WorstQuality = generation.Worst.ObjectiveVector[0]
+                    GenerationNumber = index,
+                    BestQuality = generation.Best.ObjectiveVector[0],
+                    MedianQuality = generation.Median.ObjectiveVector[0],
+                    WorstQuality = generation.Worst.ObjectiveVector[0]
                 }).ToList()
             };
         }
@@ -125,7 +191,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 operations: Symbols.DefaultOperations,
                 variables: feynmanInstance.AllowedInputVariables
             );
-            
+
             var problem = new SymbolicRegressionProblem(
                 regressionData,
                 Metrics.NMSE,
