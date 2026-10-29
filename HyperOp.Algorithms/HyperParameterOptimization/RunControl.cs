@@ -2,7 +2,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization;
 
 public enum RunAction { Continue, Stop }
 
-public sealed record RunDecision(RunAction Action, string Reason);
+public sealed record RunDecision(RunAction Action, string Reason, int? NextObservationInGenerations = null);
 
 // Training-only observations; structural diversity is the fraction of unique infix expressions.
 public sealed record RunProgress(int Generation, int EvaluationsUsed, int EvaluationsRemaining,

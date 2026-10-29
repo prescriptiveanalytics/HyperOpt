@@ -1,4 +1,4 @@
-﻿using LlmTornado.Code;
+using LlmTornado.Code;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization.AgentComponents
 {
@@ -11,10 +11,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization.AgentComponents
         public ChatRequestServiceTiers ServiceTiers { get; set; } = ChatRequestServiceTiers.Flex;
         public double Temperature { get; set; } = 0.05;
         public bool Streaming { get; set; } = true;
-        // Interaction cap, separate from the GP trial cap.
+        // Turn cap per conversation; the agent explicitly decides when to finish the search.
         public int Turns { get; set; } = 50;
         public string SystemPrompt { get; set; } = "systemPrompt";
-        public int DecisionIntervalGenerations { get; set; } = 100;
         public TimeSpan DecisionTimeout { get; set; } = TimeSpan.FromSeconds(30);
     }
 }

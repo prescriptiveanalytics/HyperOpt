@@ -77,9 +77,10 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         protected virtual async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance,
             AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit,
             Func<RunProgress, CancellationToken, Task<RunDecision>>? decideAsync,
-            int decisionIntervalGenerations = 100, CancellationToken cancellationToken = default)
+            int? firstObservationGeneration = null, CancellationToken cancellationToken = default)
         {
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(decisionIntervalGenerations);
+            if (decideAsync is not null && firstObservationGeneration is not > 0)
+                throw new ArgumentOutOfRangeException(nameof(firstObservationGeneration), "An agent-controlled run requires a positive first checkpoint.");
             parameter = parameter with { };
             var (algorithm, problem) = PrepareAlgorithm(instance, parameter);
             // Only candidates reaching the real evaluator are counted. The limiter assigns
@@ -107,13 +108,15 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             if (decideAsync is not null)
             {
                 int generation = -1;
+                long nextObservationGeneration = firstObservationGeneration!.Value;
                 double? previousCheckpointBest = null;
                 foreach (var state in run.Stream())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     lastState = state;
                     generation++;
-                    if (generation == 0 || generation % decisionIntervalGenerations != 0 ||
+                    // The agent chooses each checkpoint; the evaluation budget remains the hard limit.
+                    if (generation < nextObservationGeneration ||
                         counter.CurrentCount >= evaluationsLimit) continue;
 
                     var finite = state.Population.Select(i => i.ObjectiveVector[0]).Where(double.IsFinite).ToArray();
@@ -131,6 +134,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                         stoppedByController = true;
                         break;
                     }
+                    if (decision.Action != RunAction.Continue || decision.NextObservationInGenerations is not > 0)
+                        throw new InvalidOperationException("Continue requires a positive NextObservationInGenerations.");
+                    nextObservationGeneration = (long)generation + decision.NextObservationInGenerations.Value;
                 }
             }
             else

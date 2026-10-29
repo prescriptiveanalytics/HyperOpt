@@ -67,13 +67,15 @@ public static class ExperimentResultStore
             assessment.Any(trial => trial.TerminationReason != "evaluation_limit" || trial.EvaluationsUsed != result.EvaluationsPerConfiguration) ||
             assessment.Select(trial => trial.GPSeed).Distinct().Count() != assessment.Count ||
             tuning.Concat(assessment).Any(trial => trial.GPSeed is null || trial.FitnessMetric != "validation_nmse" ||
-                trial.EvaluationsUsed <= 0 || trial.EvaluationsUsed > result.EvaluationsPerConfiguration ||
-                (trial.TerminationReason == "evaluation_limit" ? trial.EvaluationsUsed != result.EvaluationsPerConfiguration :
+                trial.EvaluationsUsed <= 0 || trial.EvaluationsUsed > trial.EvaluationsLimit ||
+                (trial.TerminationReason == "evaluation_limit"
+                    ? trial.EvaluationsUsed != trial.EvaluationsLimit :
                     trial.TerminationReason != "controller_stop" || result.AlgorithmName != "AgentSearch" ||
                     trial.ControlObservations is not { Count: > 0 } ||
                     trial.ControlObservations[^1].Decision.Action != HyperOp.Algorithms.HyperParameterOptimization.RunAction.Stop ||
                     trial.ControlObservations[^1].Progress.EvaluationsUsed != trial.EvaluationsUsed) ||
-                trial.EvaluationsLimit != result.EvaluationsPerConfiguration))
+                trial.EvaluationsLimit <= 0) ||
+            assessment.Any(trial => trial.EvaluationsLimit != result.EvaluationsPerConfiguration))
             throw new InvalidDataException("Incomplete or incompatible experiment result. Use a fresh campaign directory for a changed protocol.");
     }
 

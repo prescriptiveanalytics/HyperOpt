@@ -2,6 +2,7 @@ using HyperOp.Algorithms;
 using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.Feynman.Instances;
 using HyperOp.Algorithms.HyperParameterOptimization;
+using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
 using HyperOp.Experiments;
 
 var parsedArgs = ParseArgs(args);
@@ -98,13 +99,13 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
         NormalizeKey(name) == NormalizeKey(algorithmNameFilter)).ToList();
     if (algorithmNames.Count == 0)
         throw new ArgumentException($"Unknown algorithm '{algorithmNameFilter}'. Available: {string.Join(", ", GetAvailableAlgorithmNames())}");
-    var agentParameters = AgentSearch.CreateOllamaParameters();
+    var agentParameters = new AgentParameter();//AgentSearch.CreateOllamaParameters();
     if (parsedArgs.TryGetValue("model", out var model)) agentParameters.ModelName = model;
     if (parsedArgs.TryGetValue("ollama-url", out var ollamaUrl)) agentParameters.OllamaBaseUrl = ollamaUrl;
     if (string.IsNullOrWhiteSpace(agentParameters.ModelName)) throw new ArgumentException("--model cannot be empty.");
     List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = algorithmNames.Select(name => name switch {
-        nameof(IRaceSearch) => (HyperParameterOptimizationAlgorithm)new IRaceSearch(),
         nameof(AgentSearch) => new AgentSearch(agentParameters),
+        nameof(IRaceSearch) => (HyperParameterOptimizationAlgorithm)new IRaceSearch(),
         nameof(GridSearch) => new GridSearch(),
         nameof(HillClimbingSearch) => new HillClimbingSearch(),
         _ => new RandomSearch()
@@ -139,7 +140,10 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
                     int numConfigurations = entry.Item1;
                     int evaluationsPerConfiguration = entry.Item2;
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {benchmarkKey} " +
-                        $"(Repetition {repetition}, Configurations: {numConfigurations}, Evaluations per Configuration: {evaluationsPerConfiguration})");
+                        $"(Repetition {repetition}, Configurations: {numConfigurations}, " +
+                        (algorithm is AgentSearch
+                            ? $"Shared evaluations: {checked(numConfigurations * evaluationsPerConfiguration)})"
+                            : $"Evaluations per Configuration: {evaluationsPerConfiguration})"));
 
                     try
                     {
@@ -280,6 +284,7 @@ void PrintUsage()
     Console.WriteLine("  --model <name> --ollama-url <url>  Agent model / server (default: qwen3:8b / http://localhost:11434)");
     Console.WriteLine("  --aggregate   Combine completed *.result.json files into all_results.json, without running GP");
     Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget (default: 100 configs / 1000 evals)");
+    Console.WriteLine("                  AgentSearch shares their product across configurations; --evaluations is not a per-run cap.");
     Console.WriteLine("  --budget-sweep Run the full five budget variations instead of the default single budget");
     Console.WriteLine("  --help        Show this message");
     Console.WriteLine();
