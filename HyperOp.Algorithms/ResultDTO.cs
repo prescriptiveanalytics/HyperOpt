@@ -35,7 +35,12 @@ namespace HyperOp.Algorithms
 
         public required double WorstPopulationFitness { get; set; }
 
+        // GP execution only; controller inference while GP waits is excluded.
         public required double ExecutionTimeMs { get; set; }
+        // Entire trial: setup, GP, controller decisions, calibration and validation scoring.
+        public double? TrialWallTimeMs { get; set; }
+        // Process CPU time during the trial (all threads); unaffected by other processes competing for cores.
+        public double? TrialCpuTimeMs { get; set; }
 
         public required int EvaluationsUsed { get; set; }
 

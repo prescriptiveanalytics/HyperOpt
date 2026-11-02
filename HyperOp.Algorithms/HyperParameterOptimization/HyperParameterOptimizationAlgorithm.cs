@@ -1,4 +1,4 @@
-using HEAL.HeuristicLib.Algorithms;
+﻿using HEAL.HeuristicLib.Algorithms;
 using HEAL.HeuristicLib.Analysis;
 using HEAL.HeuristicLib.Data;
 using HEAL.HeuristicLib.Encodings.SymbolicExpressions;
@@ -12,6 +12,7 @@ using HEAL.HeuristicLib.Problems;
 using HEAL.HeuristicLib.Problems.MachineLearning;
 using HEAL.HeuristicLib.Random;
 using HyperOp.Algorithms.Benchmarks;
+using HyperOp.Algorithms.Logging;
 using Parlot.Fluent;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
@@ -29,7 +30,22 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
 
         public virtual string RecommendationRule => "minimum_validation_nmse";
 
+        // One-time setup (e.g. building a container image), run before a job's clock starts so it is not charged to tuning.
+        public virtual Task PrepareAsync() => Task.CompletedTask;
+
+        public IProtocolLog Log { get; set; } = NullProtocolLog.Instance;
+
+        // Settings that distinguish otherwise identical jobs of this method (feedback condition, checkpoint interval).
+        public virtual string? Variant => null;
+        private string _phase = "tuning";
+
+        // Model requests made by the optimizer itself; empty for methods without an LLM.
+        public virtual IReadOnlyList<LlmCallRecord> LlmCalls => [];
+
         public virtual ResultDTO NominateConfiguration(IReadOnlyList<ResultDTO> tuningResults) => BestValidationTrial(tuningResults);
+
+        // Per-run allowance for fresh-seed assessment; methods with fixed per-trial work use E.
+        public virtual int AssessmentEvaluations(ResultDTO recommendation, int evaluationsPerConfiguration) => evaluationsPerConfiguration;
 
         public static ResultDTO BestValidationTrial(IReadOnlyList<ResultDTO> tuningResults) =>
             tuningResults.Where(result => double.IsFinite(result.BestFitness))
@@ -41,23 +57,40 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             int seed, int repetitions, int evaluationsPerRun)
         {
             configuration = configuration with { };
-            ValidateBudget(repetitions, evaluationsPerRun);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repetitions);
+            // An agent-stopped nominee may have used fewer than 100 evaluations; its initial population must still fit.
+            ArgumentOutOfRangeException.ThrowIfLessThan(evaluationsPerRun, configuration.PopulationSize);
             var usedSeeds = tuningResults.Select(result => result.GPSeed
                 ?? throw new InvalidOperationException("Tuning seeds must be recorded before assessment."))
                 .ToHashSet();
             var random = new Random(seed ^ int.MinValue);
             var assessmentResults = new List<ResultDTO>();
-            // A separate deterministic seed stream, shared across methods, without a data-seed option.
-            // Negative GP seeds also separate the usual positive tuning/racing seeds.
-            for (int repetition = 0; repetition < repetitions; repetition++)
+            _phase = "assessment";
+            try
             {
-                int gpSeed;
-                do { gpSeed = random.Next(int.MinValue, 0); } while (!usedSeeds.Add(gpSeed));
-                var result = await EvaluateConfiguration(instance, configuration, repetition, gpSeed, evaluationsPerRun);
-                result.EvaluateTest(instance.PreparedData);
-                assessmentResults.Add(result);
+                // A separate deterministic seed stream, shared across methods, without a data-seed option.
+                // Negative GP seeds also separate the usual positive tuning/racing seeds.
+                for (int repetition = 0; repetition < repetitions; repetition++)
+                {
+                    int gpSeed;
+                    do { gpSeed = random.Next(int.MinValue, 0); } while (!usedSeeds.Add(gpSeed));
+                    var result = await EvaluateConfiguration(instance, configuration, repetition, gpSeed, evaluationsPerRun);
+                    result.EvaluateTest(instance.PreparedData);
+                    assessmentResults.Add(result);
+                }
             }
+            finally { _phase = "tuning"; }
             return assessmentResults;
+        }
+
+        // GP seed of tuning trial i in an HPO run: a SplitMix64 hash of (HPO seed, i). Methods share it for the same
+        // repetition and trial, while repetitions do not reuse each other's seeds. Non-negative, unlike assessment seeds.
+        public static int TrialSeed(int hpoSeed, int trialIndex)
+        {
+            ulong z = (((ulong)(uint)hpoSeed << 32) | (uint)trialIndex) + 0x9E3779B97F4A7C15UL;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+            return (int)((z ^ (z >> 31)) & int.MaxValue);
         }
 
         protected static void ValidateBudget(int numConfigurations, int evaluationsPerConfiguration)
@@ -77,25 +110,23 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         protected virtual async Task<ResultDTO> EvaluateConfiguration(RegressionDescriptor instance,
             AlgorithmParameter parameter, int configurationId, int seed, int evaluationsLimit,
             Func<RunProgress, CancellationToken, Task<RunDecision>>? decideAsync,
-            int? firstObservationGeneration = null, CancellationToken cancellationToken = default)
+            int? firstObservationGeneration = null, CancellationToken cancellationToken = default,
+            FeedbackChannels channels = FeedbackChannels.Progress)
         {
             if (decideAsync is not null && firstObservationGeneration is not > 0)
                 throw new ArgumentOutOfRangeException(nameof(firstObservationGeneration), "An agent-controlled run requires a positive first checkpoint.");
             parameter = parameter with { };
+            var trialClock = Stopwatch.StartNew();
+            var cpuAtStart = Process.GetCurrentProcess().TotalProcessorTime;
             var (algorithm, problem) = PrepareAlgorithm(instance, parameter);
             // Only candidates reaching the real evaluator are counted. The limiter assigns
             // worst fitness to unscored candidates in the last, possibly partial, generation.
             var countedEvaluator = algorithm.Evaluator.CountEvaluatedCandidates(out var counter);
 
-            //TODO: CHeck if both are necessary (if time is left, otherwise ignore)
             algorithm = algorithm with {
                 Evaluator = countedEvaluator.LimitEvaluations(evaluationsLimit, enforceLimitWithinBatch: true),
                 Terminator = AfterOperatorCountTerminator.For(problem, counter, evaluationsLimit),
             };
-
-            //TODO: Extend
-            //var bmwanalyzer = Analyzer.BestMedianWorst(algorithm);
-            //var divanalyzer = 
 
             var analyzer = Analyzer.BestMedianWorst(algorithm);
             
@@ -109,26 +140,24 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             {
                 int generation = -1;
                 long nextObservationGeneration = firstObservationGeneration!.Value;
-                double? previousCheckpointBest = null;
+                var feedback = new RunFeedbackBuilder(instance.PreparedData, parameter, channels | FeedbackChannels.Progress);
                 foreach (var state in run.Stream())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     lastState = state;
                     generation++;
-                    // The agent chooses each checkpoint; the evaluation budget remains the hard limit.
-                    if (generation < nextObservationGeneration ||
-                        counter.CurrentCount >= evaluationsLimit) continue;
-
-                    var finite = state.Population.Select(i => i.ObjectiveVector[0]).Where(double.IsFinite).ToArray();
-                    double? bestNow = finite.Length == 0 ? null : finite.Min();
-                    var lengths = state.Population.Select(i => i.Candidate.Length).Order().ToArray();
-                    var progress = new RunProgress(generation, counter.CurrentCount,
-                        evaluationsLimit - counter.CurrentCount, bestNow,
-                        previousCheckpointBest is double before && bestNow is double now ? before - now : null,
-                        (double)state.Population.Select(i => i.Candidate.ToInfixString()).Distinct().Count() / lengths.Length,
-                        (lengths[(lengths.Length - 1) / 2] + lengths[lengths.Length / 2]) / 2.0);
-                    previousCheckpointBest = bestNow;
+                    // Feedback computation and the controller's inference are not GP time; they count as trial overhead.
+                    stopwatch.Stop();
+                    feedback.Observe(generation, state);
+                    // Checkpoints follow the controller's schedule; the evaluation budget remains the hard limit.
+                    if (generation < nextObservationGeneration || counter.CurrentCount >= evaluationsLimit)
+                    {
+                        stopwatch.Start();
+                        continue;
+                    }
+                    var progress = feedback.Checkpoint(generation, counter.CurrentCount, evaluationsLimit - counter.CurrentCount, state);
                     var decision = await decideAsync(progress, cancellationToken);
+                    stopwatch.Start();
                     if (decision.Action == RunAction.Stop)
                     {
                         stoppedByController = true;
@@ -153,12 +182,14 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 ?? throw new InvalidOperationException("GP produced no finite training objective.");
             var model = new SymbolicRegressor(best.Candidate, "prediction")
                 .FitLinearScaling(instance.PreparedData.Training);
-            return new ResultDTO {
+            double validationFitness = instance.PreparedData.ValidationFitness(model);
+            trialClock.Stop();
+            var result = new ResultDTO {
                 TerminationReason = stoppedByController ? "controller_stop" : "evaluation_limit",
                 Configuration = parameter,
                 ConfigurationIndex = configurationId,
                 GPSeed = seed,
-                BestFitness = instance.PreparedData.ValidationFitness(model),
+                BestFitness = validationFitness,
                 FitnessMetric = "validation_nmse",
                 TrainingBestFitness = best.ObjectiveVector[0],
                 SelectedModel = model,
@@ -168,6 +199,8 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                 MeanPopulationFitness = objectives.Average(),
                 WorstPopulationFitness = objectives.Max(),
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                TrialWallTimeMs = trialClock.Elapsed.TotalMilliseconds,
+                TrialCpuTimeMs = (Process.GetCurrentProcess().TotalProcessorTime - cpuAtStart).TotalMilliseconds,
                 EvaluationsUsed = counter.CurrentCount,
                 EvaluationsLimit = evaluationsLimit,
                 // Entry zero is initialization, not an offspring generation.
@@ -187,6 +220,13 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     WorstQuality = generation.Worst.ObjectiveVector[0]
                 }).ToList()
             };
+            Log.Write("gp_run", new {
+                Phase = _phase, result.ConfigurationIndex, result.GPSeed, result.Configuration, result.EvaluationsLimit,
+                result.EvaluationsUsed, result.GenerationsCompleted, result.TerminationReason,
+                ValidationNmse = result.BestFitness, TrainingNmse = result.TrainingBestFitness,
+                GpMs = result.ExecutionTimeMs, result.TrialWallTimeMs
+            });
+            return result;
         }
 
         private static (GeneticAlgorithm<ExpressionTree, ExpressionTreeSearchSpace, IProblem<ExpressionTree, ExpressionTreeSearchSpace>>, SymbolicRegressionProblem) PrepareAlgorithm(

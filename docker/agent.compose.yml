@@ -1,0 +1,59 @@
+# Local LLM service for AgentSearch, plus the experiment runner on the same Docker network.
+#   docker compose -f docker/agent.compose.yml up -d ollama-models      # start Ollama and pull the models
+#   docker compose -f docker/agent.compose.yml run --rm experiments --algorithm AgentSearch --model qwen3.5:4b-q4_K_M --instance I.6.20 --configurations 10 --evaluations 1000
+# With an NVIDIA GPU, add -f docker/agent.gpu.compose.yml after the first file.
+name: hyperop-agent
+
+x-ollama-image: &ollama-image ollama/ollama:0.40.3
+
+services:
+  ollama:
+    image: *ollama-image
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      # Concurrent requests per loaded model; raise it when several agent jobs share one GPU.
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      # One resident model: models compared in a study must not compete for the same memory or compute.
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
+      # Keep models resident so loading is not charged to individual decisions.
+      OLLAMA_KEEP_ALIVE: "-1"
+      # Agent histories exceed Ollama's default context; truncation would silently drop earlier trials.
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-32768}
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    restart: unless-stopped
+
+  # One-shot job: pulls the study models into the shared volume and exits.
+  ollama-models:
+    image: *ollama-image
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      HYPEROP_MODELS: ${HYPEROP_MODELS:-qwen3.5:2b-q4_K_M qwen3.5:4b-q4_K_M qwen3.5:9b-q4_K_M}
+    entrypoint: ["/bin/sh", "-c", "for model in $$HYPEROP_MODELS; do ollama pull $$model || exit 1; done; ollama list"]
+
+  experiments:
+    build:
+      context: ..
+      dockerfile: HyperOp.Experiments/Dockerfile
+    depends_on:
+      ollama-models:
+        condition: service_completed_successfully
+    environment:
+      HYPEROP_OLLAMA_URL: http://ollama:11434
+    volumes:
+      - ../results:/results
+    working_dir: /app
+    entrypoint: ["dotnet", "HyperOp.Experiments.dll", "--output", "/results"]
+    profiles: ["run"]
+
+volumes:
+  ollama-data:

@@ -4,6 +4,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
@@ -12,12 +13,15 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
     {
         private const string RequestPrefix = "HYPEROP_EVALUATE\t";
         private const string RecommendationPrefix = "HYPEROP_RECOMMEND\t";
-        private const string DockerImage = "hyperop-irace";
+        private const string InfoPrefix = "HYPEROP_IRACE\t";
         private static readonly SemaphoreSlim ImageLock = new(1, 1);
-        private static bool imageReady;
+        // Tagged with a hash of the Dockerfile, so a changed Dockerfile builds a new image instead of reusing a stale one.
+        private static string? dockerImage;
         private int? recommendedConfigurationId;
 
         public override string RecommendationRule => "irace_final_elite";
+
+        public override Task PrepareAsync() => EnsureDockerImage();
 
         public override ResultDTO NominateConfiguration(IReadOnlyList<ResultDTO> tuningResults) =>
             tuningResults.FirstOrDefault(result => result.ConfigurationIndex == recommendedConfigurationId)
@@ -27,8 +31,9 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         // ConfigurationIndex is irace's configuration ID, shared by repeated trials.
         public override async Task<List<ResultDTO>> Execute(RegressionDescriptor feynmanInstance, int seed, int numConfigurations, int evaluationsPerConfiguration)
         {
-            if (numConfigurations < 4)
-                throw new ArgumentOutOfRangeException(nameof(numConfigurations), "irace requires at least four target evaluations.");
+            // irace 4.4.0 rejects smaller budgets with these racing settings (firstTest = 2, one iteration).
+            if (numConfigurations < 6)
+                throw new ArgumentOutOfRangeException(nameof(numConfigurations), "irace requires at least six target evaluations.");
             ValidateBudget(numConfigurations, evaluationsPerConfiguration);
             recommendedConfigurationId = null;
             await EnsureDockerImage();
@@ -48,7 +53,7 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                     UseShellExecute = false, CreateNoWindow = true
                 };
                 foreach (var arg in new[] { "run", "--rm", "-i", "--mount",
-                    $"type=bind,source={directory.FullName},target=/work,readonly", DockerImage })
+                    $"type=bind,source={directory.FullName},target=/work,readonly", dockerImage! })
                     start.ArgumentList.Add(arg);
                 start.ArgumentList.Add("/work/irace.R");
                 start.ArgumentList.Add("/work/parameters.txt");
@@ -73,6 +78,13 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
                             if (recommendedConfigurationId is not null)
                                 throw new InvalidOperationException("irace returned more than one final recommendation.");
                             recommendedConfigurationId = int.Parse(line[RecommendationPrefix.Length..], CultureInfo.InvariantCulture);
+                            continue;
+                        }
+                        if (line.StartsWith(InfoPrefix, StringComparison.Ordinal))
+                        {
+                            var info = line[InfoPrefix.Length..].Split('\t');
+                            Log.Write("irace_started", new { IraceVersion = info[0], Iterations = int.Parse(info[1], CultureInfo.InvariantCulture),
+                                Image = dockerImage, MaxExperiments = numConfigurations });
                             continue;
                         }
                         if (!line.StartsWith(RequestPrefix, StringComparison.Ordinal))
@@ -123,24 +135,25 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
             await ImageLock.WaitAsync();
             try
             {
-                if (imageReady) return;
+                if (dockerImage is not null) return;
                 var daemon = await RunDocker("info", "--format", "{{.ServerVersion}}");
                 if (daemon.ExitCode != 0)
                     throw new InvalidOperationException($"Docker is unavailable. Start Docker Desktop with Linux containers enabled.\n{daemon.Output}");
-                var image = await RunDocker("image", "inspect", DockerImage);
+                // MSBuild copies this file beside the executable, independent of the F5 working directory.
+                var dockerfile = Path.Combine(AppContext.BaseDirectory, "docker", "irace.Dockerfile");
+                if (!File.Exists(dockerfile))
+                    throw new FileNotFoundException("The irace Dockerfile is missing from the application output. Rebuild the solution.", dockerfile);
+                string tag = "hyperop-irace:" + Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(dockerfile)))[..12];
+                var image = await RunDocker("image", "inspect", tag);
                 if (image.ExitCode != 0)
                 {
-                    // MSBuild copies this file beside the executable, independent of the F5 working directory.
-                    var dockerfile = Path.Combine(AppContext.BaseDirectory, "docker", "irace.Dockerfile");
-                    if (!File.Exists(dockerfile))
-                        throw new FileNotFoundException("The irace Dockerfile is missing from the application output. Rebuild the solution.", dockerfile);
-                    Console.WriteLine($"Building {DockerImage} from {dockerfile}. The first build may take a few minutes.");
-                    var build = await RunDocker("build", "--file", dockerfile, "--tag", DockerImage, Path.GetDirectoryName(dockerfile)!);
+                    Console.WriteLine($"Building {tag} from {dockerfile}. The first build may take a few minutes.");
+                    var build = await RunDocker("build", "--file", dockerfile, "--tag", tag, Path.GetDirectoryName(dockerfile)!);
                     if (build.ExitCode != 0)
                         throw new InvalidOperationException($"Failed to build the irace Docker image.\n{build.Output}");
-                    Console.WriteLine($"Docker image {DockerImage} is ready.");
+                    Console.WriteLine($"Docker image {tag} is ready.");
                 }
-                imageReady = true;
+                dockerImage = tag;
             }
             finally { ImageLock.Release(); }
         }

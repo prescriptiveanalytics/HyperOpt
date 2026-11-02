@@ -1,9 +1,11 @@
-using HyperOp.Algorithms;
+﻿using HyperOp.Algorithms;
 using HyperOp.Algorithms.Benchmarks;
 using HyperOp.Algorithms.Feynman.Instances;
 using HyperOp.Algorithms.HyperParameterOptimization;
 using HyperOp.Algorithms.HyperParameterOptimization.AgentComponents;
+using HyperOp.Algorithms.Logging;
 using HyperOp.Experiments;
+using System.Diagnostics;
 
 var parsedArgs = ParseArgs(args);
 const int instanceSeed = 42;
@@ -23,8 +25,7 @@ Dictionary<string, RegressionDescriptor> relevantBenchmarksets = new Dictionary<
         { "II.11.28",  new Feynman65(instanceSeed) },
         { "II.35.21",  new Feynman81(instanceSeed) },
         { "III.9.52",  new Feynman90(instanceSeed) },
-        { "III.10.19", new Feynman91(instanceSeed) },
-        { "SteelIndustry", new SteelIndustryDescriptor() }
+        { "III.10.19", new Feynman91(instanceSeed) }
 };
 
 // Defaults for F5 / launching without arguments. Command-line options override these.
@@ -99,16 +100,48 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
         NormalizeKey(name) == NormalizeKey(algorithmNameFilter)).ToList();
     if (algorithmNames.Count == 0)
         throw new ArgumentException($"Unknown algorithm '{algorithmNameFilter}'. Available: {string.Join(", ", GetAvailableAlgorithmNames())}");
-    var agentParameters = new AgentParameter();//AgentSearch.CreateOllamaParameters();
+    // An Ollama URL is meaningless for OpenRouter, so it selects the local provider unless --provider says otherwise.
+    // HYPEROP_PROVIDER and HYPEROP_OLLAMA_URL supply container defaults (docker/agent.compose.yml).
+    string? ollamaUrl = parsedArgs.TryGetValue("ollama-url", out var urlValue) ? urlValue : Environment.GetEnvironmentVariable("HYPEROP_OLLAMA_URL");
+    string provider = (parsedArgs.TryGetValue("provider", out var providerValue) ? providerValue
+        : Environment.GetEnvironmentVariable("HYPEROP_PROVIDER") ?? "ollama").ToLowerInvariant();
+    var agentParameters = provider switch {
+        "ollama" => AgentSearch.CreateOllamaParameters(),
+        "openrouter" => new AgentParameter(),
+        _ => throw new ArgumentException("--provider must be 'ollama' or 'openrouter'.")
+    };
     if (parsedArgs.TryGetValue("model", out var model)) agentParameters.ModelName = model;
-    if (parsedArgs.TryGetValue("ollama-url", out var ollamaUrl)) agentParameters.OllamaBaseUrl = ollamaUrl;
+    if (parsedArgs.ContainsKey("ollama-url") && provider != "ollama")
+        throw new ArgumentException("--ollama-url requires --provider ollama.");
+    if (provider == "ollama" && ollamaUrl is not null) agentParameters.OllamaBaseUrl = ollamaUrl;
+    // Feedback condition of the agent's run controller and the checkpoint interval shared with the rule baseline.
+    if (parsedArgs.TryGetValue("feedback", out var feedbackValue))
+        agentParameters.Feedback = FeedbackChannelNames.Parse(feedbackValue);
+    int checkpointInterval = parsedArgs.TryGetValue("checkpoint-interval", out var intervalValue)
+        ? ParsePositiveInt("checkpoint-interval", intervalValue) : agentParameters.CheckpointInterval;
+    agentParameters.CheckpointInterval = checkpointInterval;
+    if (parsedArgs.TryGetValue("configurator-checkpoints", out var checkpointsValue))
+        agentParameters.ConfiguratorSeesCheckpoints = checkpointsValue.ToLowerInvariant() switch {
+            "shown" => true, "hidden" => false,
+            _ => throw new ArgumentException("--configurator-checkpoints must be 'shown' or 'hidden'.")
+        };
+    if (parsedArgs.TryGetValue("decision-timeout", out var timeoutValue))
+        agentParameters.DecisionTimeout = TimeSpan.FromSeconds(ParsePositiveInt("decision-timeout", timeoutValue));
     if (string.IsNullOrWhiteSpace(agentParameters.ModelName)) throw new ArgumentException("--model cannot be empty.");
+    // Fail before any GP work when the requested local model is not available, and pin its exact weights.
+    OllamaModelInfo? modelInfo = provider == "ollama" && algorithmNames.Contains(nameof(AgentSearch))
+        ? await OllamaModels.ResolveAsync(agentParameters.OllamaBaseUrl, agentParameters.ModelName) : null;
+    if (modelInfo is not null)
+        Console.WriteLine($"Ollama {modelInfo.ServerVersion}: {modelInfo.Name} ({modelInfo.ParameterSize}, {modelInfo.QuantizationLevel}, {modelInfo.Digest[..12]})");
     List<HyperParameterOptimizationAlgorithm> hyperOpAlgs = algorithmNames.Select(name => name switch {
         nameof(AgentSearch) => new AgentSearch(agentParameters),
         nameof(IRaceSearch) => (HyperParameterOptimizationAlgorithm)new IRaceSearch(),
+        nameof(DefaultConfigurationSearch) => new DefaultConfigurationSearch(),
+        nameof(RuleControlledSearch) => new RuleControlledSearch(checkpointInterval),
         nameof(GridSearch) => new GridSearch(),
         nameof(HillClimbingSearch) => new HillClimbingSearch(),
-        _ => new RandomSearch()
+        nameof(RandomSearch) => new RandomSearch(),
+        _ => throw new ArgumentException($"Unknown algorithm '{name}'.")
     }).ToList();
 
     // Resolve which benchmark instances to run
@@ -141,16 +174,17 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
                     int evaluationsPerConfiguration = entry.Item2;
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Executing {algorithm.GetType().Name} on {benchmarkKey} " +
                         $"(Repetition {repetition}, Configurations: {numConfigurations}, " +
-                        (algorithm is AgentSearch
+                        (algorithm is AgentSearch or RuleControlledSearch
                             ? $"Shared evaluations: {checked(numConfigurations * evaluationsPerConfiguration)})"
                             : $"Evaluations per Configuration: {evaluationsPerConfiguration})"));
 
+                    JsonlProtocolLog? protocol = null;
                     try
                     {
                         string? modelName = algorithm is AgentSearch ? agentParameters.ModelName : null;
-                        string fileName = ExperimentResultStore.JobName(algorithm.GetType().Name, benchmarkKey,
-                            repetition, numConfigurations, evaluationsPerConfiguration, assessmentRepetitions, modelName) + ".result.json";
-                        string resultFilePath = Path.Combine(outputDirectory, fileName);
+                        string jobName = ExperimentResultStore.JobName(algorithm.GetType().Name, benchmarkKey,
+                            repetition, numConfigurations, evaluationsPerConfiguration, assessmentRepetitions, modelName, algorithm.Variant);
+                        string resultFilePath = Path.Combine(outputDirectory, jobName + ".result.json");
                         int hpoSeed = checked(42 + 100 * repetition);
 
                         if (File.Exists(resultFilePath))
@@ -165,24 +199,69 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
                             continue;
                         }
 
+                        // Each attempt has its own protocol; an interrupted attempt's protocol stays beside the new one.
+                        string protocolFile = $"{jobName}__attempt={Guid.NewGuid().ToString("N")[..8]}.protocol.jsonl";
+                        protocol = new JsonlProtocolLog(Path.Combine(outputDirectory, protocolFile));
+                        algorithm.Log = protocol;
+                        await algorithm.PrepareAsync();
+                        var jobClock = Stopwatch.StartNew();
+                        var timing = new TimingBreakdown();
+                        if (algorithm is AgentSearch && modelInfo is not null)
+                        {
+                            timing.ModelWarmupMs = await OllamaModels.WarmUpAsync(agentParameters.OllamaBaseUrl, modelInfo.Name);
+                            timing.ContextLength = await OllamaModels.RuntimeContextLengthAsync(agentParameters.OllamaBaseUrl, modelInfo.Name);
+                        }
+                        protocol.Write("job_started", new {
+                            Algorithm = algorithm.GetType().Name, Instance = benchmarkKey, Repetition = repetition, Seed = hpoSeed,
+                            T = numConfigurations, E = evaluationsPerConfiguration, K = assessmentRepetitions,
+                            Model = modelName, Provider = algorithm is AgentSearch ? agentParameters.Provider.ToString() : null,
+                            ModelInfo = algorithm is AgentSearch ? modelInfo : null,
+                            Agent = algorithm is AgentSearch ? new { agentParameters.Temperature, agentParameters.Turns, DecisionTimeoutS = agentParameters.DecisionTimeout.TotalSeconds,
+                                Feedback = FeedbackChannelNames.Format(agentParameters.Feedback), agentParameters.CheckpointInterval,
+                                agentParameters.ConfiguratorSeesCheckpoints } : null,
+                            algorithm.Variant,
+                            timing.ModelWarmupMs, Host = new { Environment.MachineName, Environment.ProcessorCount, OS = Environment.OSVersion.ToString(),
+                                Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription },
+                            Arguments = args
+                        });
+
+                        var phaseClock = Stopwatch.StartNew();
                         List<ResultDTO> algRes = await algorithm.Execute(
                             regressionDescriptor,
                             hpoSeed,
                             numConfigurations,
                             evaluationsPerConfiguration
                             );
+                        timing.TuningMs = phaseClock.Elapsed.TotalMilliseconds;
 
+                        phaseClock.Restart();
                         var bestConfig = HyperParameterOptimizationAlgorithm.BestValidationTrial(algRes);
                         // Freeze both selections before any test data are scored.
                         var recommendation = algorithm.NominateConfiguration(algRes);
                         var nominatedConfiguration = recommendation.Configuration with { };
+                        int assessmentEvaluations = algorithm.AssessmentEvaluations(recommendation, evaluationsPerConfiguration);
                         bestConfig.EvaluateTest(preparedData);
+                        timing.SelectionAndTestScoringMs = phaseClock.Elapsed.TotalMilliseconds;
+                        protocol.Write("selection", new { SelectedTrialIndex = algRes.IndexOf(bestConfig), bestConfig.TestFitness,
+                            RecommendedConfiguration = nominatedConfiguration, RecommendedConfigurationIndex = recommendation.ConfigurationIndex,
+                            algorithm.RecommendationRule, AssessmentEvaluations = assessmentEvaluations });
+
+                        phaseClock.Restart();
                         var assessmentResults = await algorithm.AssessConfiguration(regressionDescriptor,
-                            nominatedConfiguration, algRes, hpoSeed, assessmentRepetitions, evaluationsPerConfiguration);
+                            nominatedConfiguration, algRes, hpoSeed, assessmentRepetitions, assessmentEvaluations);
+                        timing.AssessmentMs = phaseClock.Elapsed.TotalMilliseconds;
+                        FillTiming(timing, algRes, assessmentResults, algorithm.LlmCalls);
+                        timing.TotalJobMs = jobClock.Elapsed.TotalMilliseconds;
                         var allConfigsResult = new AggregatedResultDTO
                         {
                             AlgorithmName = algorithm.GetType().Name,
                             ModelName = modelName,
+                            ModelProvider = algorithm is AgentSearch ? agentParameters.Provider.ToString() : null,
+                            Variant = algorithm.Variant,
+                            ModelInfo = algorithm is AgentSearch ? modelInfo : null,
+                            ProtocolFile = protocolFile,
+                            Timing = timing,
+                            AssessmentEvaluationsPerRun = assessmentEvaluations,
                             InstanceName = benchmarkKey,
                             Repetition = repetition,
                             Seed = hpoSeed,
@@ -201,15 +280,29 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
                         };
 
                         ExperimentResultStore.Save(outputDirectory, allConfigsResult);
+                        protocol.Write("job_completed", new { ResultFile = Path.GetFileName(resultFilePath), Timing = timing });
 
                         Console.WriteLine($"Evaluated {algRes.Count} configurations. Best validation NMSE: {bestConfig.BestFitness:G6}; " +
                             $"selected expression test NMSE: {bestConfig.TestFitness:G6}; " +
                             $"{assessmentResults.Count} fresh-seed assessment runs saved separately.");
+                        Console.WriteLine($"Time: job {timing.TotalJobMs / 1000:F1} s; tuning {timing.TuningMs / 1000:F1} s = GP {timing.TuningGpMs / 1000:F1} s " +
+                            $"+ trial overhead {timing.TuningTrialOverheadMs / 1000:F1} s + controller {timing.ControllerInferenceMs / 1000:F1} s " +
+                            $"+ optimizer {timing.OptimizerMs / 1000:F1} s (configurator requests {timing.ConfiguratorInferenceMs / 1000:F1} s); " +
+                            $"LLM share of tuning {timing.LlmShareOfTuning:P1}; assessment {timing.AssessmentMs / 1000:F1} s.");
+                        if (timing.RequestsNearContextLimit > 0)
+                            Console.WriteLine($"Warning: {timing.RequestsNearContextLimit} model requests filled at least 90% of the {timing.ContextLength}-token context; " +
+                                "the server truncates longer prompts silently.");
                     }
                     catch (Exception ex)
                     {
                         Environment.ExitCode = 1;
                         Console.WriteLine($"Error: {ex.Message}");
+                        protocol?.Write("job_failed", new { Error = ex.ToString() });
+                    }
+                    finally
+                    {
+                        algorithm.Log = NullProtocolLog.Instance;
+                        protocol?.Dispose();
                     }
                 }
             }
@@ -219,11 +312,36 @@ async Task ExecuteExperiments(string outputDirectory, string algorithmNameFilter
     Console.WriteLine($"Experiment complete. Results saved to {outputDirectory}");
 }
 
+// Decomposes tuning wall time; see TimingBreakdown for the identities between the fields.
+static void FillTiming(TimingBreakdown timing, IReadOnlyList<ResultDTO> tuning, IReadOnlyList<ResultDTO> assessment,
+    IReadOnlyList<LlmCallRecord> llmCalls)
+{
+    var observations = tuning.SelectMany(trial => trial.ControlObservations ?? []).ToArray();
+    timing.TuningTrialWallMs = tuning.Sum(trial => trial.TrialWallTimeMs ?? trial.ExecutionTimeMs);
+    timing.TuningGpMs = tuning.Sum(trial => trial.ExecutionTimeMs);
+    timing.ControllerInferenceMs = observations.Sum(observation => observation.InferenceTimeMs);
+    timing.ControllerRequests = observations.Length;
+    timing.ControllerFallbacks = observations.Count(observation => observation.UsedFallback);
+    timing.TuningTrialOverheadMs = timing.TuningTrialWallMs - timing.TuningGpMs - timing.ControllerInferenceMs;
+    timing.OptimizerMs = timing.TuningMs - timing.TuningTrialWallMs;
+    var configurator = llmCalls.Where(call => call.Role == "configurator").ToArray();
+    timing.ConfiguratorRequests = configurator.Length;
+    timing.ConfiguratorInferenceMs = configurator.Sum(call => call.DurationMs);
+    timing.InputTokens = llmCalls.Sum(call => call.InputTokens ?? 0);
+    timing.OutputTokens = llmCalls.Sum(call => call.OutputTokens ?? 0);
+    timing.ReasoningTokens = llmCalls.Sum(call => call.ReasoningTokens ?? 0);
+    if (timing.ContextLength is int context)
+        timing.RequestsNearContextLimit = llmCalls.Count(call => call.InputTokens >= 0.9 * context);
+    timing.TuningTrialCpuMs = tuning.Sum(trial => trial.TrialCpuTimeMs ?? 0);
+    timing.AssessmentGpMs = assessment.Sum(run => run.ExecutionTimeMs);
+}
+
 Dictionary<string, string> ParseArgs(string[] cmdArgs)
 {
     var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     string[] known = ["help", "h", "algorithm", "instance", "output", "run-id", "repetitions", "repetition-start",
-        "configurations", "evaluations", "budget-sweep", "model", "ollama-url", "aggregate"];
+        "configurations", "evaluations", "budget-sweep", "model", "provider", "ollama-url", "decision-timeout", "feedback",
+        "checkpoint-interval", "configurator-checkpoints", "aggregate"];
 
     for (int i = 0; i < cmdArgs.Length; i++)
     {
@@ -256,7 +374,8 @@ int ParsePositiveInt(string name, string value)
 
 IEnumerable<string> GetAvailableAlgorithmNames()
 {
-    return new[] { nameof(AgentSearch), nameof(GridSearch), nameof(HillClimbingSearch), nameof(IRaceSearch), nameof(RandomSearch) };
+    return new[] { nameof(AgentSearch), nameof(DefaultConfigurationSearch), nameof(GridSearch), nameof(HillClimbingSearch),
+        nameof(IRaceSearch), nameof(RandomSearch), nameof(RuleControlledSearch) };
 }
 
 string NormalizeKey(string value)
@@ -281,7 +400,16 @@ void PrintUsage()
     Console.WriteLine("  --run-id      Optional campaign subdirectory (no subdirectory by default)");
     Console.WriteLine("  --repetitions Number of repetitions (default: 1)");
     Console.WriteLine("  --repetition-start First repetition identifier (default: 1; also determines seeds)");
-    Console.WriteLine("  --model <name> --ollama-url <url>  Agent model / server (default: qwen3:8b / http://localhost:11434)");
+    Console.WriteLine("  --provider    Agent provider: ollama (default; local models) or openrouter (google/gemma-4-26b-a4b-it, cloud)");
+    Console.WriteLine($"                  (default {OllamaModels.StudyModels[^1]}; study models {string.Join(", ", OllamaModels.StudyModels)})");
+    Console.WriteLine("  --model <name> --ollama-url <url>  Agent model / Ollama server (default http://localhost:11434; implies ollama)");
+    Console.WriteLine("                  HYPEROP_PROVIDER and HYPEROP_OLLAMA_URL set the defaults when the options are omitted;");
+    Console.WriteLine("                  agent jobs fail before any GP work if the local model is not available");
+    Console.WriteLine("  --decision-timeout <s>  Run-controller timeout in seconds (default: 300); a timeout continues the run");
+    Console.WriteLine("  --feedback    Agent run feedback: final (no checkpoints), progress (default), all, or progress plus any of");
+    Console.WriteLine("                  curve, diversity, size, generalization, e.g. progress+curve+size");
+    Console.WriteLine("  --checkpoint-interval <n>  Generations between checkpoints for AgentSearch and RuleControlledSearch (default: 10)");
+    Console.WriteLine("  --configurator-checkpoints shown|hidden  hidden: the controller acts, the configurator sees final results only");
     Console.WriteLine("  --aggregate   Combine completed *.result.json files into all_results.json, without running GP");
     Console.WriteLine("  --configurations <n> --evaluations <n>  Override the default budget (default: 100 configs / 1000 evals)");
     Console.WriteLine("                  AgentSearch shares their product across configurations; --evaluations is not a per-run cap.");

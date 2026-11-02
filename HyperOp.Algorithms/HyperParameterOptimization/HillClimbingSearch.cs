@@ -3,9 +3,11 @@ using HyperOp.Algorithms.HyperParameterOptimization.Util;
 
 namespace HyperOp.Algorithms.HyperParameterOptimization
 {
+    // Steepest-descent hill climbing on the grid with random restarts: each climb starts at a seeded random
+    // unevaluated grid point, evaluates its unevaluated coordinate neighbors in seeded random order, moves to the
+    // best neighbor while it improves validation NMSE, and restarts at a local optimum until the trial cap is reached.
     public class HillClimbingSearch : HyperParameterOptimizationAlgorithm
     {
-        // Preserve coordinate order: truncated neighborhoods depend on it.
         private static IEnumerable<AlgorithmParameter> GenerateNeighbors(AlgorithmParameter current)
         {
             foreach (int value in ParameterSpace.PopulationSizes)
@@ -24,39 +26,45 @@ namespace HyperOp.Algorithms.HyperParameterOptimization
         {
             ValidateBudget(numConfigurations, evaluationsPerConfiguration);
             var results = new List<ResultDTO>();
-            var currentConfiguration = new AlgorithmParameter {
-                PopulationSize = ParameterSpace.PopulationSizes[ParameterSpace.PopulationSizes.Length / 2],
-                MutationRate = ParameterSpace.MutationRates[ParameterSpace.MutationRates.Length / 2],
-                MaxTreeDepth = ParameterSpace.MaxTreeDepths[ParameterSpace.MaxTreeDepths.Length / 2],
-                MaxTreeLength = ParameterSpace.MaxTreeLengths[ParameterSpace.MaxTreeLengths.Length / 2],
-                MutatorType = ParameterSpace.MutatorTypes[0]
-            };
-            var evaluatedConfigurations = new HashSet<AlgorithmParameter> { currentConfiguration };
-            var currentBestResult = await EvaluateConfiguration(feynmanInstance, currentConfiguration,
-                0, seed, evaluationsPerConfiguration);
-            results.Add(currentBestResult);
+            var random = new Random(seed);
+            var startOrder = ParameterSpace.Grid();
+            random.Shuffle(startOrder);
+            int nextStart = 0;
+            var evaluated = new HashSet<AlgorithmParameter>();
 
-            while (results.Count < numConfigurations)
+            async Task<ResultDTO> Evaluate(AlgorithmParameter configuration)
             {
-                var neighbors = GenerateNeighbors(currentConfiguration)
-                    .Where(n => !evaluatedConfigurations.Contains(n))
-                    .Take(numConfigurations - results.Count).ToList();
-                var neighborResults = new List<ResultDTO>();
-                foreach (var neighbor in neighbors)
+                int trialIndex = results.Count;
+                var result = await EvaluateConfiguration(feynmanInstance, configuration,
+                    trialIndex, TrialSeed(seed, trialIndex), evaluationsPerConfiguration);
+                // Every executed configuration consumes a trial, including unsuccessful neighbors.
+                results.Add(result);
+                evaluated.Add(configuration);
+                return result;
+            }
+
+            for (int climb = 0; results.Count < numConfigurations; climb++)
+            {
+                while (nextStart < startOrder.Length && evaluated.Contains(startOrder[nextStart])) nextStart++;
+                // The whole grid has been evaluated.
+                if (nextStart == startOrder.Length) break;
+                var current = await Evaluate(startOrder[nextStart]);
+                Log.Write("hill_climb_start", new { Climb = climb, Trial = results.Count - 1, current.Configuration });
+
+                while (results.Count < numConfigurations)
                 {
-                    int trialIndex = results.Count;
-                    var result = await EvaluateConfiguration(feynmanInstance, neighbor,
-                        trialIndex, seed + trialIndex, evaluationsPerConfiguration);
-                    // Every executed neighbor consumes a trial, including unsuccessful ones.
-                    results.Add(result);
-                    neighborResults.Add(result);
-                    evaluatedConfigurations.Add(neighbor);
+                    var neighbors = GenerateNeighbors(current.Configuration).Where(n => !evaluated.Contains(n)).ToArray();
+                    // Random order matters when the remaining trials truncate the neighborhood.
+                    random.Shuffle(neighbors);
+                    var neighborResults = new List<ResultDTO>();
+                    foreach (var neighbor in neighbors.Take(numConfigurations - results.Count))
+                        neighborResults.Add(await Evaluate(neighbor));
+                    var bestNeighbor = neighborResults.Where(r => double.IsFinite(r.BestFitness))
+                        .OrderBy(r => r.BestFitness).FirstOrDefault();
+                    if (bestNeighbor is null || !(bestNeighbor.BestFitness < current.BestFitness))
+                        break;
+                    current = bestNeighbor;
                 }
-                var bestNeighbor = neighborResults.OrderBy(r => r.BestFitness).FirstOrDefault();
-                if (bestNeighbor is null || bestNeighbor.BestFitness >= currentBestResult.BestFitness)
-                    break;
-                currentConfiguration = bestNeighbor.Configuration;
-                currentBestResult = bestNeighbor;
             }
             return results;
         }

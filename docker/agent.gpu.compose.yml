@@ -1,0 +1,10 @@
+# NVIDIA GPU access for the Ollama service; use together with agent.compose.yml.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

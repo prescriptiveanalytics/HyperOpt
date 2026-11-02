@@ -1,4 +1,4 @@
-using HyperOp.Algorithms;
+﻿using HyperOp.Algorithms;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,14 +12,15 @@ public static class ExperimentResultStore
 
     // Escape values reversibly: replacing '/' and ':' with '_' would merge distinct model names.
     public static string JobName(string algorithm, string instance, int repetition, int trials,
-        int evaluations, int assessments, string? model = null) =>
+        int evaluations, int assessments, string? model = null, string? variant = null) =>
         $"{Uri.EscapeDataString(algorithm)}" +
         (model is null ? "" : $"__model={Uri.EscapeDataString(model)}") +
+        (variant is null ? "" : $"__{variant}") +
         $"__instance={Uri.EscapeDataString(instance)}__rep={repetition}__T={trials}__E={evaluations}__K={assessments}";
 
     public static string FileName(AggregatedResultDTO result) => JobName(result.AlgorithmName,
         result.InstanceName, result.Repetition, result.NumConfigurations, result.EvaluationsPerConfiguration,
-        result.ConfigurationAssessmentResults?.Count ?? 0, result.ModelName) + ".result.json";
+        result.ConfigurationAssessmentResults?.Count ?? 0, result.ModelName, result.Variant) + ".result.json";
 
     public static AggregatedResultDTO Load(string path)
     {
@@ -51,6 +52,7 @@ public static class ExperimentResultStore
     {
         var tuning = result.ConfigurationResults;
         var assessment = result.ConfigurationAssessmentResults;
+        int assessmentEvaluations = result.AssessmentEvaluationsPerRun ?? result.EvaluationsPerConfiguration;
         if ((result.AlgorithmName == "AgentSearch" && string.IsNullOrWhiteSpace(result.ModelName)) ||
             result.TrainingRows <= 0 || result.ValidationRows <= 0 || result.TestRows <= 0 ||
             tuning is null || tuning.Count == 0 || tuning.Count > result.NumConfigurations ||
@@ -64,18 +66,18 @@ public static class ExperimentResultStore
             assessment is null || assessment.Count == 0 ||
             assessment.Any(trial => trial.TestFitness is null || trial.Configuration != result.RecommendedConfiguration ||
                 tuning.Any(observed => observed.GPSeed == trial.GPSeed)) ||
-            assessment.Any(trial => trial.TerminationReason != "evaluation_limit" || trial.EvaluationsUsed != result.EvaluationsPerConfiguration) ||
+            assessment.Any(trial => trial.TerminationReason != "evaluation_limit" || trial.EvaluationsUsed != assessmentEvaluations) ||
             assessment.Select(trial => trial.GPSeed).Distinct().Count() != assessment.Count ||
             tuning.Concat(assessment).Any(trial => trial.GPSeed is null || trial.FitnessMetric != "validation_nmse" ||
                 trial.EvaluationsUsed <= 0 || trial.EvaluationsUsed > trial.EvaluationsLimit ||
                 (trial.TerminationReason == "evaluation_limit"
                     ? trial.EvaluationsUsed != trial.EvaluationsLimit :
-                    trial.TerminationReason != "controller_stop" || result.AlgorithmName != "AgentSearch" ||
+                    trial.TerminationReason != "controller_stop" || result.AlgorithmName is not ("AgentSearch" or "RuleControlledSearch") ||
                     trial.ControlObservations is not { Count: > 0 } ||
                     trial.ControlObservations[^1].Decision.Action != HyperOp.Algorithms.HyperParameterOptimization.RunAction.Stop ||
                     trial.ControlObservations[^1].Progress.EvaluationsUsed != trial.EvaluationsUsed) ||
                 trial.EvaluationsLimit <= 0) ||
-            assessment.Any(trial => trial.EvaluationsLimit != result.EvaluationsPerConfiguration))
+            assessment.Any(trial => trial.EvaluationsLimit != assessmentEvaluations))
             throw new InvalidDataException("Incomplete or incompatible experiment result. Use a fresh campaign directory for a changed protocol.");
     }
 

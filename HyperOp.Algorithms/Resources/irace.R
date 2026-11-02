@@ -27,6 +27,9 @@ target_runner <- function(experiment, scenario) {
 # Small races support the experiment's ten-evaluation budget. Increase iterations
 # with the budget, up to five, while respecting irace's minimum budget.
 iterations <- max(1L, min(5L, floor(sqrt(budget / 2)) - 1L))
+cat("HYPEROP_IRACE	", as.character(utils::packageVersion("irace")), "	", iterations, "
+", sep = "")
+flush(stdout())
 scenario <- list(parameters = parameters, targetRunner = target_runner,
                  instances = "feynman", seed = seed, maxExperiments = budget,
                  minNbSurvival = 1L, nbIterations = iterations, mu = 1L,

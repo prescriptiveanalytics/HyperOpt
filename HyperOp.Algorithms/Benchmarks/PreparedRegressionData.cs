@@ -10,6 +10,8 @@ public sealed class PreparedRegressionData
     private readonly RegressionData test;
 
     public RegressionData Training { get; }
+    // Inputs of 64 evenly spaced training rows (all rows if fewer), used to compare the behavior of expressions.
+    public DataFrame DiversityInputs { get; }
     public IReadOnlyList<int> TrainingRows { get; }
     public IReadOnlyList<int> ValidationRows { get; }
     public IReadOnlyList<int> TestRows { get; }
@@ -34,6 +36,13 @@ public sealed class PreparedRegressionData
         Training = Partition(partitions[0]);
         validation = Partition(partitions[1]);
         test = Partition(partitions[2]);
+        var sample = Enumerable.Range(0, Math.Min(64, partitions[0].Length))
+            .Select(i => partitions[0][(int)((long)i * partitions[0].Length / Math.Min(64, partitions[0].Length))]).ToArray();
+        var sampleInputs = new double[sample.Length, columns.Length - 1];
+        for (int row = 0; row < sample.Length; row++)
+            for (int column = 0; column < columns.Length - 1; column++)
+                sampleInputs[row, column] = columns[column][sample[row]];
+        DiversityInputs = DataFrame.FromMatrix(descriptor.AllowedInputVariables, sampleInputs);
     }
 
     public static PreparedRegressionData Create(RegressionDescriptor descriptor, List<List<double>> source,
