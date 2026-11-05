@@ -28,3 +28,10 @@ README.md
 !.git/config
 !.git/packed-refs
 !.git/refs/heads/**
+# Not needed to build the runner; keeps papers and private documents out of the build context.
+Paper
+results
+tmp
+.artifacts
+.review-verification
+**/*.pdf
