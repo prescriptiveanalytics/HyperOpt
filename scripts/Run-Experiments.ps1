@@ -60,6 +60,11 @@ $assembly = Join-Path $repository 'HyperOp.Experiments/bin/Release/net10.0/Hyper
 $outputDirectory = [IO.Path]::GetFullPath($Output)
 $workers = if ($MaxProcesses -gt 0) { $MaxProcesses } else { [Math]::Max(1, [Math]::Floor([Environment]::ProcessorCount / 2)) }
 $lastRepetition = $RepetitionStart + $Repetitions - 1
+# Lists may also arrive as one comma-separated string (pwsh -File from another shell passes 'A,B' unsplit).
+$Algorithms = @($Algorithms -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$Instances = @($Instances -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$Models = @($Models -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$Feedback = @($Feedback -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if (!$Algorithms.Count -or !$Instances.Count -or !$Models.Count) { throw 'Algorithm, instance and model lists cannot be empty.' }
 
 $availableAlgorithms = @('RandomSearch', 'GridSearch', 'HillClimbingSearch', 'IRaceSearch', 'DefaultConfigurationSearch', 'RuleControlledSearch', 'RandomRunLengthSearch', 'AshaSearch', 'AgentSearch')

@@ -9,7 +9,8 @@ request in tokens. Pass criteria, all cells:
   0. completeness and identity (scripts/attempts.py load_study, the same check as the analysis): every job of
      expected-jobs.txt ends as a result or a counted failure under the failure and retry policy, each result names its
      completed protocol, and all jobs match study-identity.json (or, without it, one another);
-  4. the whole budget spent and never exceeded;
+  4. the whole budget spent and never exceeded (irace may leave one run of E unused, as irace 4.4.0 does when exactly one
+     run remains after its last race);
   5. median job time per concurrent job within 1.5 times the estimate (agent cells only): the estimate is the GPU time of
      one job alone; with CONCURRENCY agent jobs at once, Ollama serves one request at a time, so each job's wall time is
      about CONCURRENCY times longer while throughput is unchanged.
@@ -94,7 +95,10 @@ def main(directory):
             problems.append(f'2: {name}: fallback rate {max(rates):.1%}')
         if near:
             problems.append(f'3: {name}: {near} requests at 90% of the context window')
-        if unspent and max(unspent) >= 100:
+        # irace treats T as a maximum: its post-selection race spends a remainder of at least two runs, but a single
+        # remaining run is left unused (irace 4.4.0); that one run of E evaluations is expected, more is not.
+        allowed = 100 if algorithm != 'IRaceSearch' else max((r['EvaluationsPerConfiguration'] for r in jobs), default=0) + 100
+        if unspent and max(unspent) >= allowed:
             problems.append(f'4: {name}: up to {max(unspent)} evaluations left unspent')
         if unspent and min(unspent) < 0:
             problems.append(f'4: {name}: a job used {-min(unspent)} evaluations more than its budget')

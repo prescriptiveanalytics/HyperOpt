@@ -32,7 +32,7 @@ training rows; `--fitting-*` options), which is not counted as evaluations.
 | --- | --- |
 | `RandomSearch`, `GridSearch` | Uniform sampling; a fixed 5,000-point grid in seeded random order |
 | `HillClimbingSearch` | Steepest descent on the grid with random restarts |
-| `IRaceSearch` | irace 4.4.0 in a Docker container (image builds automatically; at least 6 trials) |
+| `IRaceSearch` | irace 4.4.0 in a Docker container (image builds automatically; at least 6 trials; at most T trials: its post-selection race spends a remainder of two or more runs, a single remaining run stays unused) |
 | `DefaultConfigurationSearch` | The default configuration, rerun T times |
 | `RuleControlledSearch` | Random configurations from a shared pool, rule-based early stopping |
 | `RandomRunLengthSearch` | Random configurations from a shared pool with random run lengths, no stopping |
