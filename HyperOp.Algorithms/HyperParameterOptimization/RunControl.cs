@@ -2,7 +2,24 @@ namespace HyperOp.Algorithms.HyperParameterOptimization;
 
 public enum RunAction { Continue, Stop }
 
-public sealed record RunDecision(RunAction Action, string Reason, int? NextObservationInGenerations = null);
+public sealed record RunDecision(RunAction Action, string Reason, int? NextObservationInEvaluations = null);
+
+public static class CheckpointSchedule
+{
+    public const int DefaultCheckpoints = 10;
+
+    // Candidate evaluations between checkpoints: E/K, so a run that uses E evaluations is observed about K times,
+    // whatever its population size, and observation cost grows with the evaluations a run actually uses.
+    public static int Interval(int evaluationsPerConfiguration, int checkpoints)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(evaluationsPerConfiguration);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(checkpoints);
+        return (evaluationsPerConfiguration + checkpoints - 1) / checkpoints;
+    }
+
+    // Part of job and file names, so it must stay file-name safe.
+    public static string Name(int checkpoints) => $"checkpoints-per-E={checkpoints}";
+}
 
 // Information a run controller receives at a checkpoint. None means no checkpoints: only the final result is seen.
 // Progress is the base of every checkpoint; the other channels add sections to it.
@@ -80,6 +97,14 @@ public sealed record RunControlObservation(RunProgress Progress, RunDecision Dec
 
 // What the LLM sees of a checkpoint: the feedback and the decision with its reason. Inference time, the fallback
 // flag and the fixed checkpoint delay are bookkeeping; they stay in the protocol and results.
+// The primary selection of a job: the snapshot chosen over all tuning runs and its scores.
+public sealed record ExpressionSelection(int TrialIndex, int ConfigurationIndex, int Evaluations, double ValidationNmse, double TestNmse,
+    int Length, string Expression)
+{
+    // Against the noisy test targets; null for noiseless data.
+    public double? NoisyTestNmse { get; init; }
+}
+
 public sealed record CheckpointView(RunProgress Progress, RunAction Action, string Reason)
 {
     public static CheckpointView From(RunControlObservation observation) =>

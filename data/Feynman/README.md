@@ -5,6 +5,15 @@ Thirteen synthetic regression tasks are registered in
 and uniformly in the order shown below. Physical constants are variable inputs;
 `h` denotes reduced Planck's constant (ℏ).
 
+Fifteen further AI Feynman equations are registered as a development set (`developmentSets`
+in the same file) and are used only for pilots that choose budgets and settings; they are
+not part of the evaluation.
+
+With `--noise s`, training and validation targets receive Gaussian noise with standard
+deviation s times the clean target's (fixed noise seed, drawn per row in row order); the test
+partition is scored against the clean and the noisy targets. The study uses s = 0.1 for a
+noisy subset of conditions.
+
 | Runner identifier / descriptor | Inputs in descriptor order | Domains in that order | Target expression |
 | --- | --- | --- | --- |
 | I.6.20 / Feynman2 | sigma, theta | [1,3], [1,3] | exp(-theta²/(2 sigma²))/(sqrt(2 pi) sigma) |

@@ -45,6 +45,18 @@ namespace HyperOp.Algorithms.HyperParameterOptimization.AgentComponents
             return null;
         }
 
+        // Memory of the loaded model as the server reports it: total size and the part in GPU memory. Less in GPU memory than in
+        // total means layers run on the CPU, which slows every request.
+        public static async Task<(long? Size, long? Vram)> RuntimeMemoryAsync(string baseUrl, string model)
+        {
+            using var running = JsonDocument.Parse(await Http.GetStringAsync(new Uri(new Uri(baseUrl.TrimEnd('/') + "/"), "api/ps")));
+            foreach (var entry in running.RootElement.GetProperty("models").EnumerateArray())
+                if (entry.GetProperty("name").GetString() == model)
+                    return (entry.TryGetProperty("size", out var size) ? size.GetInt64() : null,
+                        entry.TryGetProperty("size_vram", out var vram) ? vram.GetInt64() : null);
+            return (null, null);
+        }
+
         // Loads the model into memory and keeps it resident, so loading is not charged to the first decision.
         public static async Task<double> WarmUpAsync(string baseUrl, string model)
         {

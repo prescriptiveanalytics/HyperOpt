@@ -28,8 +28,12 @@ namespace HyperOp.Algorithms.Logging
         private readonly StreamWriter _writer;
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly Lock _gate = new();
+        private long _lastWriteTicks = DateTime.UtcNow.Ticks;
 
         public string Path { get; }
+
+        // Time of the latest record; the experiment runner treats a long silence as a hung job.
+        public DateTime LastWriteUtc => new(Interlocked.Read(ref _lastWriteTicks), DateTimeKind.Utc);
 
         public JsonlProtocolLog(string path)
         {
@@ -45,6 +49,7 @@ namespace HyperOp.Algorithms.Logging
                 _writer.WriteLine(JsonSerializer.Serialize(new {
                     Utc = DateTime.UtcNow, ElapsedMs = _clock.Elapsed.TotalMilliseconds, Type = type, Data = data
                 }, JsonOptions));
+                Interlocked.Exchange(ref _lastWriteTicks, DateTime.UtcNow.Ticks);
             }
         }
 

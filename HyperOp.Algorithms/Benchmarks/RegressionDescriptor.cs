@@ -3,10 +3,38 @@ namespace HyperOp.Algorithms.Benchmarks;
 public abstract class RegressionDescriptor
 {
     private readonly Lazy<PreparedRegressionData> preparedData;
+    private double targetNoise;
 
     protected RegressionDescriptor()
     {
-        preparedData = new Lazy<PreparedRegressionData>(PrepareData);
+        preparedData = new Lazy<PreparedRegressionData>(() => PreparedRegressionData.Derive(PrepareData(), TargetNoise, SampleRows));
+    }
+
+    // Small-data variant: evenly spaced subsets of this many training rows and this many validation rows (0: all rows);
+    // the test partition is unchanged. Set before PreparedData is used.
+    public int SampleRows
+    {
+        get => sampleRows;
+        set
+        {
+            if (preparedData.IsValueCreated) throw new InvalidOperationException("Set SampleRows before the data are prepared.");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            sampleRows = value;
+        }
+    }
+    private int sampleRows;
+
+    // Gaussian noise on the training and validation targets, with a standard deviation of this fraction of the clean
+    // target's standard deviation; 0 is noiseless. Test is scored against clean and noisy targets. Set before PreparedData is used.
+    public double TargetNoise
+    {
+        get => targetNoise;
+        set
+        {
+            if (preparedData.IsValueCreated) throw new InvalidOperationException("Set TargetNoise before the data are prepared.");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            targetNoise = value;
+        }
     }
 
     public abstract string Name { get; }

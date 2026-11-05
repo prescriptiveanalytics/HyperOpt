@@ -57,7 +57,7 @@ public sealed class RunFeedbackBuilder(PreparedRegressionData data, AlgorithmPar
         {
             var bestTree = population.Where(i => double.IsFinite(i.ObjectiveVector[0])).MinBy(i => i.ObjectiveVector[0])!.Candidate;
             var model = new SymbolicRegressor(bestTree, "prediction").FitLinearScaling(data.Training);
-            double validation = data.ValidationFitness(model);
+            double validation = data.MonitoringFitness(model);
             progress = progress with { Generalization = new GeneralizationFeedback(validation, validation - training) };
         }
         return progress;
@@ -102,12 +102,19 @@ public sealed class RunFeedbackBuilder(PreparedRegressionData data, AlgorithmPar
         return 1 - similarity / pairs;
     }
 
-    // Zero mean and unit variance; null for constant outputs, whose correlation is undefined.
+    // Zero mean and unit variance; null for constant outputs, whose correlation is undefined. The values are first divided by
+    // their largest magnitude, so the test is invariant to scale (outputs of 1e-14 and of 1 are treated alike) and squares
+    // cannot overflow; an output counts as constant when its spread is zero or below 1e-12 of its absolute mean, a chosen
+    // numerical tolerance (so a large offset with tiny variation counts as constant, although double precision could still
+    // resolve it; the paper and Supplement S5 state this rule).
     private static double[]? Standardize(double[] values)
     {
-        double mean = values.Average();
-        double sd = Math.Sqrt(values.Sum(v => (v - mean) * (v - mean)) / values.Length);
-        return sd <= 1e-12 * Math.Max(1, Math.Abs(mean)) ? null : values.Select(v => (v - mean) / sd).ToArray();
+        double scale = values.Max(v => Math.Abs(v));
+        if (!(scale > 0) || !double.IsFinite(scale)) return null;
+        var scaled = values.Select(v => v / scale).ToArray();
+        double mean = scaled.Average();
+        double sd = Math.Sqrt(scaled.Sum(v => (v - mean) * (v - mean)) / scaled.Length);
+        return sd == 0 || sd <= 1e-12 * Math.Abs(mean) ? null : scaled.Select(v => (v - mean) / sd).ToArray();
     }
 
     private static double[] FiniteObjectives(PopulationState<ExpressionTree> state) =>

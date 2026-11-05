@@ -14,14 +14,17 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     environment:
-      # Concurrent requests per loaded model; raise it when several agent jobs share one GPU.
+      # Concurrent requests per loaded model. Ollama 0.40.3 serves qwen35 with one slot whatever this says, so the
+      # requests of concurrent agent jobs queue.
       OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
       # One resident model: models compared in a study must not compete for the same memory or compute.
       OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
       # Keep models resident so loading is not charged to individual decisions.
       OLLAMA_KEEP_ALIVE: "-1"
-      # Agent histories exceed Ollama's default context; truncation would silently drop earlier trials.
-      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-32768}
+      # Agent histories exceed Ollama's default context; truncation would silently drop earlier trials. Requests reached
+      # 47,011 tokens at the maximum configuration, and the design allows about 68k; qwen35 has one slot and full
+      # attention in every fourth layer, so 128k costs about 4 GB for 9B.
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-131072}
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 5s
